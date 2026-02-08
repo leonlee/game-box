@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Brogue Mini</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #000;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      flex-direction: column;
+    }
+    canvas {
+      border: 1px solid #1a1a2e;
+    }
+    .controls {
+      color: #555;
+      font: 12px monospace;
+      margin-top: 8px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="game"></canvas>
+  <div class="controls">
+    Move: arrows / hjkl / yubn (diagonal) &nbsp;|&nbsp;
+    Descend: &gt; &nbsp;|&nbsp;
+    Wait: space &nbsp;|&nbsp;
+    Restart: r &nbsp;|&nbsp;
+    Language: F1
+  </div>
+  <script src="dist/game.js"></script>
+</body>
+</html>

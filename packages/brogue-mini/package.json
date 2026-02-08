@@ -1,0 +1,13 @@
+{
+  "name": "brogue-mini",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "esbuild src/main.ts --bundle --outfile=dist/game.js --sourcemap",
+    "watch": "esbuild src/main.ts --bundle --outfile=dist/game.js --sourcemap --watch"
+  },
+  "devDependencies": {
+    "esbuild": "^0.20.0",
+    "typescript": "^5.3.0"
+  }
+}

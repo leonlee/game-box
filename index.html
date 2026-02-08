@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>沙盒游戏</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0a0a0f;
+      color: #c0c0c0;
+      font-family: 'Courier New', monospace;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 60px 20px;
+    }
+    h1 {
+      font-size: 2rem;
+      color: #e0e0e0;
+      margin-bottom: 8px;
+      letter-spacing: 2px;
+    }
+    .subtitle {
+      color: #666;
+      font-size: 0.9rem;
+      margin-bottom: 48px;
+    }
+    .games-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 24px;
+      max-width: 900px;
+      width: 100%;
+    }
+    .game-card {
+      background: #12121a;
+      border: 1px solid #1a1a2e;
+      border-radius: 8px;
+      padding: 24px;
+      transition: border-color 0.2s, transform 0.2s;
+      text-decoration: none;
+      color: inherit;
+      display: block;
+    }
+    .game-card:hover {
+      border-color: #3a3a5e;
+      transform: translateY(-2px);
+    }
+    .game-card h2 {
+      color: #e8c170;
+      font-size: 1.1rem;
+      margin-bottom: 8px;
+    }
+    .game-card p {
+      font-size: 0.85rem;
+      line-height: 1.5;
+      color: #888;
+    }
+    .game-card .tag {
+      display: inline-block;
+      margin-top: 12px;
+      font-size: 0.7rem;
+      color: #556;
+      border: 1px solid #222;
+      padding: 2px 8px;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <h1>沙盒游戏</h1>
+  <p class="subtitle">浏览器小游戏合集</p>
+  <div class="games-grid">
+    <a class="game-card" href="packages/brogue-mini/index.html">
+      <h2>迷你地牢</h2>
+      <p>一款受 Brogue 启发的轻量 Roguelike 地牢探险游戏。探索随机生成的地牢、击败怪物、收集战利品。</p>
+      <span class="tag">roguelike</span>
+    </a>
+  </div>
+</body>
+</html>

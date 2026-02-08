@@ -1,0 +1,9 @@
+{
+  "name": "sandbox-games",
+  "private": true,
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "build:brogue-mini": "npm run build -w packages/brogue-mini"
+  }
+}
