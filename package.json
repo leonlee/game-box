@@ -4,6 +4,7 @@
   "workspaces": ["packages/*"],
   "scripts": {
     "build": "npm run build --workspaces",
-    "build:brogue-mini": "npm run build -w packages/brogue-mini"
+    "build:brogue-mini": "npm run build -w packages/brogue-mini",
+    "build:japan-syllabary": "npm run build -w packages/japan-syllabary"
   }
 }
