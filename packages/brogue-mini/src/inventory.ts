@@ -33,6 +33,7 @@ export class Inventory {
 
     const slot = item.equipSlot!;
     const prev = this.equipped[slot];
+    if (prev?.cursed) return null; // can't replace cursed equipment
 
     // Unequip previous into same slot in inventory
     this.items.splice(index, 1);
@@ -48,6 +49,7 @@ export class Inventory {
   unequip(slot: keyof EquipSlots): boolean {
     const item = this.equipped[slot];
     if (!item) return false;
+    if (item.cursed) return false; // can't unequip cursed items
     if (this.isFull()) return false;
     this.equipped[slot] = null;
     this.items.push(item);
@@ -55,39 +57,49 @@ export class Inventory {
   }
 
   getWeaponBonus(): number {
-    return this.equipped.weapon?.value ?? 0;
+    const wep = this.equipped.weapon;
+    if (!wep) return 0;
+    return wep.cursed ? Math.max(0, wep.value - 1) : wep.value;
   }
 
   getArmorBonus(): number {
-    return this.equipped.armor?.value ?? 0;
+    const arm = this.equipped.armor;
+    if (!arm) return 0;
+    return arm.cursed ? Math.max(0, arm.value - 1) : arm.value;
   }
 
-  /** Degrade weapon durability on player attack. Returns broken item name or null. */
-  degradeWeapon(): string | null {
+  /** Degrade weapon durability on player attack. Returns {broken, warning} info. */
+  degradeWeapon(): { broken: string | null; warning: boolean } {
     const eq = this.equipped.weapon;
     if (eq && eq.durability !== undefined) {
       eq.durability--;
       if (eq.durability <= 0) {
         const n = eq.nameId;
         this.equipped.weapon = null;
-        return n;
+        return { broken: n, warning: false };
+      }
+      if (eq.maxDurability && eq.durability <= Math.ceil(eq.maxDurability * 0.25)) {
+        return { broken: null, warning: true };
       }
     }
-    return null;
+    return { broken: null, warning: false };
   }
 
-  /** Degrade armor durability when player is hit. Returns broken item name or null. */
-  degradeArmor(): string | null {
+  /** Degrade armor durability when player is hit. Returns {broken, warning} info. */
+  degradeArmor(): { broken: string | null; warning: boolean } {
     const eq = this.equipped.armor;
     if (eq && eq.durability !== undefined) {
       eq.durability--;
       if (eq.durability <= 0) {
         const n = eq.nameId;
         this.equipped.armor = null;
-        return n;
+        return { broken: n, warning: false };
+      }
+      if (eq.maxDurability && eq.durability <= Math.ceil(eq.maxDurability * 0.25)) {
+        return { broken: null, warning: true };
       }
     }
-    return null;
+    return { broken: null, warning: false };
   }
 
   clear() {

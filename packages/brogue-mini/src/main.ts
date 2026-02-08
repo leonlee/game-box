@@ -15,6 +15,7 @@ if (hasSave()) {
 let autoTimer: ReturnType<typeof setInterval> | null = null;
 let throwMode = false;
 let throwIndex = -1;
+let dashMode = false;
 let gameOverRecorded = false; // track if we've saved to leaderboard
 
 function stopAuto() {
@@ -80,6 +81,27 @@ document.addEventListener("keydown", (e) => {
     return;
   }
 
+  // --- Dash mode: waiting for direction ---
+  if (dashMode) {
+    let dx = 0, dy = 0;
+    switch (e.key) {
+      case "ArrowUp": case "k": dx = 0; dy = -1; break;
+      case "ArrowDown": case "j": dx = 0; dy = 1; break;
+      case "ArrowLeft": case "h": dx = -1; dy = 0; break;
+      case "ArrowRight": case "l": dx = 1; dy = 0; break;
+      case "y": dx = -1; dy = -1; break;
+      case "u": dx = 1; dy = -1; break;
+      case "b": dx = -1; dy = 1; break;
+      case "n": dx = 1; dy = 1; break;
+      case "Escape": dashMode = false; e.preventDefault(); return;
+      default: e.preventDefault(); return;
+    }
+    game.useDash(dx, dy);
+    dashMode = false;
+    e.preventDefault();
+    return;
+  }
+
   // --- Throw mode: waiting for direction ---
   if (throwMode) {
     let dx = 0, dy = 0;
@@ -139,11 +161,37 @@ document.addEventListener("keydown", (e) => {
     return;
   }
 
+  // --- Buy confirmation ---
+  if (game.pendingBuy) {
+    if (e.key === "y" || e.key === "Y") game.confirmBuy();
+    else if (e.key === "n" || e.key === "N" || e.key === "Escape") game.declineBuy();
+    e.preventDefault();
+    return;
+  }
+
   // --- Level up selection ---
   if (game.pendingLevelUp) {
     if (e.key === "1") game.applyLevelUp(0);
     else if (e.key === "2") game.applyLevelUp(1);
     else if (e.key === "3") game.applyLevelUp(2);
+    e.preventDefault();
+    return;
+  }
+
+  // Ability keys (when not leveling up)
+  if (e.key === "1" && game.abilities.length >= 1) {
+    // Dash needs direction
+    dashMode = true;
+    e.preventDefault();
+    return;
+  }
+  if (e.key === "2" && game.abilities.length >= 2) {
+    game.useAbility(1);
+    e.preventDefault();
+    return;
+  }
+  if (e.key === "3" && game.abilities.length >= 3) {
+    game.useAbility(2);
     e.preventDefault();
     return;
   }
@@ -222,6 +270,9 @@ document.addEventListener("keydown", (e) => {
     // Stairs
     case ">":
       game.tryDescend();
+      break;
+    case "<":
+      game.tryAscend();
       break;
 
     // Wait

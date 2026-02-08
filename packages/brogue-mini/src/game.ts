@@ -12,6 +12,7 @@ import { sfx } from "./audio";
 import { Inventory } from "./inventory";
 import { StatusManager } from "./effects";
 import { saveGame, deleteSave } from "./save";
+import { AnimationQueue } from "./animation";
 
 export interface Creature {
   x: number;
@@ -28,9 +29,12 @@ export interface Creature {
   ranged?: boolean;    // archer: ranged attack
   splits?: boolean;    // slime: splits on death
   xpValue?: number;    // XP reward on kill
+  stunTurns?: number;  // skips turns while stunned
+  burnTurns?: number;  // takes damage each turn
+  fearTurns?: number;  // flees from player
 }
 
-export type MsgType = "combat" | "pickup" | "system" | "pet";
+export type MsgType = "combat" | "pickup" | "system" | "pet" | "info";
 
 export interface GameMessage {
   text: string;
@@ -39,6 +43,13 @@ export interface GameMessage {
 }
 
 export type ItemType = "potion" | "consumable" | "equipment" | "scroll" | "throwing" | "food" | "amulet";
+
+export type EnchantType = "fire" | "ice" | "vampiric" | "thorns" | "swift";
+
+export interface Enchantment {
+  type: EnchantType;
+  level: number;
+}
 
 export interface Item {
   x: number;
@@ -51,6 +62,9 @@ export interface Item {
   equipSlot?: "weapon" | "armor";
   durability?: number;
   maxDurability?: number;
+  enchantment?: Enchantment;
+  cursed?: boolean;
+  price?: number; // shop item price
 }
 
 interface MonsterDef {
@@ -70,10 +84,13 @@ const MONSTER_DEFS: MonsterDef[] = [
   { char: "r", color: "#a0522d", nameId: "rat", hp: 3, attack: 2, defense: 0, xpValue: 3 },
   { char: "g", color: "#3cb371", nameId: "goblin", hp: 7, attack: 3, defense: 1, xpValue: 8 },
   { char: "s", color: "#9b59b6", nameId: "snake", hp: 5, attack: 4, defense: 0, xpValue: 7 },
+  { char: "a", color: "#c0392b", nameId: "archer", hp: 6, attack: 3, defense: 0, ranged: true, xpValue: 10 },
   { char: "O", color: "#e67e22", nameId: "ogre", hp: 14, attack: 5, defense: 2, xpValue: 15 },
   { char: "G", color: "#5a7a9a", nameId: "ghost", hp: 8, attack: 4, defense: 0, passWall: true, xpValue: 12 },
-  { char: "a", color: "#c0392b", nameId: "archer", hp: 6, attack: 3, defense: 0, ranged: true, xpValue: 10 },
   { char: "S", color: "#27ae60", nameId: "slime", hp: 10, attack: 2, defense: 1, splits: true, xpValue: 10 },
+  { char: "z", color: "#cccccc", nameId: "skeleton", hp: 9, attack: 4, defense: 2, xpValue: 12 },
+  { char: "W", color: "#6a0dad", nameId: "wraith", hp: 12, attack: 5, defense: 1, passWall: true, xpValue: 18 },
+  { char: "f", color: "#ff4500", nameId: "fire imp", hp: 7, attack: 3, defense: 0, ranged: true, xpValue: 14 },
 ];
 
 const DIRS4: [number, number][] = [[-1,0],[1,0],[0,-1],[0,1]];
@@ -107,11 +124,22 @@ export class GameState {
   pendingLevelUp = false;
   kills = 0;
   showMinimap = false;
+  ascending = false;
+  identifiedTypes: Set<string> = new Set();
+  deadSkeletons: { x: number; y: number; turnsLeft: number; hp: number; maxHp: number; atk: number; def: number; xp: number }[] = [];
+  abilities: ("dash" | "shield_bash" | "battle_cry")[] = [];
+  abilityCooldowns: Record<string, number> = {};
+  gold = 0;
+  pendingBuy: Item | null = null;
+  burningTiles: Map<string, number> = new Map(); // "x,y" -> turns remaining
+  animations = new AnimationQueue();
+  potionLabels: Record<string, string> = {};
+  scrollLabels: Record<string, string> = {};
 
   private readonly fovRadius = 10;
   private readonly petHealInterval = 5;
   private readonly petHealAmount = 4;
-  private readonly hungerInterval = 10; // lose 1 hunger every N turns
+  private readonly hungerInterval = 12; // lose 1 hunger every N turns
 
   constructor() {
     this.player = {
@@ -125,6 +153,7 @@ export class GameState {
       attack: 3,
       defense: 1,
     };
+    this.randomizeLabels();
     this.pet = this.makePet(0, 0);
     // Start with a ration and a short sword equipped
     this.inventory.add(this.makeItem(0, 0, "ration"));
@@ -134,9 +163,31 @@ export class GameState {
     this.msg(t("welcome"));
   }
 
+  private randomizeLabels() {
+    const potionColors = ["red", "blue", "green", "pink", "black", "white", "yellow", "purple"];
+    const scrollAdj = ["charred", "tattered", "glowing", "ancient", "damp", "faded", "ornate", "dusty"];
+    const shuffle = <T>(arr: T[]): T[] => {
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+      }
+      return arr;
+    };
+    const potionTypes = ["health potion", "potion of strength", "potion of poison"];
+    const scrollTypes = ["scroll of teleport", "scroll of identify", "scroll of enchant", "scroll of mapping", "scroll of remove curse"];
+    const sColors = shuffle([...potionColors]);
+    const sAdj = shuffle([...scrollAdj]);
+    for (let i = 0; i < potionTypes.length; i++) {
+      this.potionLabels[potionTypes[i]] = sColors[i] + " potion";
+    }
+    for (let i = 0; i < scrollTypes.length; i++) {
+      this.scrollLabels[scrollTypes[i]] = sAdj[i] + " scroll";
+    }
+  }
+
   private makePet(x: number, y: number): Creature {
     // Pet scales with depth
-    const scale = 1 + (this.depth - 1) * 0.2;
+    const scale = 1 + (this.depth - 1) * 0.14;
     return {
       x, y,
       char: "d",
@@ -154,17 +205,41 @@ export class GameState {
       "health potion": { char: "!", color: "#ff69b4", nameId: "health potion", type: "potion", value: 8 },
       "health potion small": { char: "!", color: "#ff69b4", nameId: "health potion", type: "potion", value: 5 },
       whetstone: { char: ")", color: "#87ceeb", nameId: "whetstone", type: "consumable", value: 1 },
-      "short sword": { char: ")", color: "#cccccc", nameId: "short sword", type: "equipment", value: 2, equipSlot: "weapon", durability: 35, maxDurability: 35 },
-      "long sword": { char: ")", color: "#e0e0ff", nameId: "long sword", type: "equipment", value: 4, equipSlot: "weapon", durability: 45, maxDurability: 45 },
-      "leather armor": { char: "[", color: "#8b6914", nameId: "leather armor", type: "equipment", value: 2, equipSlot: "armor", durability: 40, maxDurability: 40 },
-      "chain mail": { char: "[", color: "#b0b0b0", nameId: "chain mail", type: "equipment", value: 4, equipSlot: "armor", durability: 50, maxDurability: 50 },
+      "short sword": { char: ")", color: "#cccccc", nameId: "short sword", type: "equipment", value: 2, equipSlot: "weapon", durability: 45, maxDurability: 45 },
+      "long sword": { char: ")", color: "#e0e0ff", nameId: "long sword", type: "equipment", value: 4, equipSlot: "weapon", durability: 60, maxDurability: 60 },
+      "leather armor": { char: "[", color: "#8b6914", nameId: "leather armor", type: "equipment", value: 2, equipSlot: "armor", durability: 52, maxDurability: 52 },
+      "chain mail": { char: "[", color: "#b0b0b0", nameId: "chain mail", type: "equipment", value: 4, equipSlot: "armor", durability: 65, maxDurability: 65 },
       "scroll of teleport": { char: "?", color: "#daa520", nameId: "scroll of teleport", type: "scroll", value: 0 },
       "scroll of identify": { char: "?", color: "#87cefa", nameId: "scroll of identify", type: "scroll", value: 0 },
+      "scroll of enchant": { char: "?", color: "#ff6666", nameId: "scroll of enchant", type: "scroll", value: 0 },
+      "scroll of mapping": { char: "?", color: "#66ff66", nameId: "scroll of mapping", type: "scroll", value: 0 },
+      "scroll of remove curse": { char: "?", color: "#ffffff", nameId: "scroll of remove curse", type: "scroll", value: 0 },
+      "potion of strength": { char: "!", color: "#ff4444", nameId: "potion of strength", type: "potion", value: 1 },
+      "potion of poison": { char: "!", color: "#44ff44", nameId: "potion of poison", type: "potion", value: 5 },
       "throwing knife": { char: "/", color: "#c0c0c0", nameId: "throwing knife", type: "throwing", value: 4 },
       ration: { char: "%", color: "#cd853f", nameId: "ration", type: "food", value: 40 },
     };
     const def = defs[id] ?? defs["health potion"];
     return { x, y, ...def };
+  }
+
+  /** Get display name for an item (handles unidentified potions/scrolls and enchantments) */
+  getItemDisplayName(item: Item): string {
+    if ((item.type === "potion" || item.type === "scroll") && !this.identifiedTypes.has(item.nameId)) {
+      const label = this.potionLabels[item.nameId] || this.scrollLabels[item.nameId];
+      if (label) return name(label);
+    }
+    let displayName = name(item.nameId);
+    if (item.enchantment) {
+      const prefixes: Record<string, string> = {
+        fire: "flaming", ice: "frozen", vampiric: "vampiric", thorns: "thorned", swift: "swift",
+      };
+      displayName = `${prefixes[item.enchantment.type]} ${displayName}`;
+    }
+    if (item.cursed && this.identifiedTypes.has("curse:" + item.nameId)) {
+      displayName = `cursed ${displayName}`;
+    }
+    return displayName;
   }
 
   private msg(text: string, type: MsgType = "system") {
@@ -179,7 +254,7 @@ export class GameState {
   }
 
   private generateLevel() {
-    const { cells, rooms } = generateDungeon(this.depth);
+    const { cells, rooms } = generateDungeon(this.depth, this.ascending);
     this.cells = cells;
     this.monsters = [];
     this.items = [];
@@ -226,22 +301,20 @@ export class GameState {
       }
     }
 
-    // Depth 5: place amulet in last room, remove stairs, spawn boss
-    if (this.depth >= 5) {
+    // Depth 5: mid-boss Dragon guards Dragon Scale
+    if (this.depth === 5) {
       const last = rooms[rooms.length - 1];
       const sx = Math.floor(last.x + last.w / 2);
       const sy = Math.floor(last.y + last.h / 2);
-      this.cells[sy][sx].tile = Tile.Floor;
+      // Dragon Scale: permanent +2 DEF, indestructible
       this.items.push({
-        x: sx,
-        y: sy,
-        char: '"',
-        color: "#ffd700",
-        nameId: "Amulet of Yendor",
-        type: "amulet",
-        value: 0,
+        x: sx, y: sy,
+        char: "[", color: "#ff6600",
+        nameId: "dragon scale",
+        type: "equipment",
+        value: 2,
+        equipSlot: "armor",
       });
-      // Spawn boss: powerful ogre
       const bossX = rand(last.x, last.x + last.w - 1);
       const bossY = rand(last.y, last.y + last.h - 1);
       if (this.cells[bossY][bossX].tile !== Tile.Wall && !(bossX === sx && bossY === sy)) {
@@ -256,26 +329,79 @@ export class GameState {
       }
     }
 
+    // Depth 10: Lich boss guards Amulet of Yendor
+    if (this.depth >= 10) {
+      const last = rooms[rooms.length - 1];
+      const sx = Math.floor(last.x + last.w / 2);
+      const sy = Math.floor(last.y + last.h / 2);
+      this.cells[sy][sx].tile = Tile.Floor;
+      this.items.push({
+        x: sx, y: sy,
+        char: '"', color: "#ffd700",
+        nameId: "Amulet of Yendor",
+        type: "amulet",
+        value: 0,
+      });
+      const bossX = rand(last.x, last.x + last.w - 1);
+      const bossY = rand(last.y, last.y + last.h - 1);
+      if (this.cells[bossY][bossX].tile !== Tile.Wall && !(bossX === sx && bossY === sy)) {
+        this.monsters.push({
+          x: bossX, y: bossY,
+          char: "L", color: "#9933ff",
+          nameId: "lich",
+          hp: 30, maxHp: 30,
+          attack: 7, defense: 3,
+          ranged: true,
+          xpValue: 80,
+        });
+      }
+    }
+
     computeFOV(this.cells, this.player.x, this.player.y, this.fovRadius);
   }
 
   private spawnShopItems(room: Room) {
-    const shopItems = ["health potion", "scroll of teleport", "throwing knife", "ration"];
-    for (let j = 0; j < rand(2, 3); j++) {
-      const id = shopItems[rand(0, shopItems.length - 1)];
+    const shopItems: { id: string; price: number }[] = [
+      { id: "health potion", price: 8 },
+      { id: "scroll of teleport", price: 12 },
+      { id: "throwing knife", price: 6 },
+      { id: "ration", price: 5 },
+      { id: "scroll of identify", price: 10 },
+      { id: "potion of strength", price: 20 },
+    ];
+    for (let j = 0; j < rand(2, 4); j++) {
+      const pick = shopItems[rand(0, shopItems.length - 1)];
       const ix = rand(room.x, room.x + room.w - 1);
       const iy = rand(room.y, room.y + room.h - 1);
       if (this.cells[iy][ix].tile !== Tile.Wall) {
-        this.items.push(this.makeItem(ix, iy, id));
+        const item = this.makeItem(ix, iy, pick.id);
+        item.price = pick.price;
+        this.items.push(item);
       }
+    }
+    // Place shopkeeper in center of room (friendly, not a monster)
+    const kx = Math.floor(room.x + room.w / 2);
+    const ky = Math.floor(room.y + room.h / 2);
+    if (this.cells[ky][kx].tile !== Tile.Wall) {
+      this.monsters.push({
+        x: kx, y: ky,
+        char: "$", color: "#ffd700",
+        nameId: "shopkeeper",
+        hp: 999, maxHp: 999,
+        attack: 0, defense: 99,
+        xpValue: 0,
+      });
     }
   }
 
   private spawnMonster(room: Room) {
-    // Tier progression: depth 1-2 = basic, 3-4 = mid, 5 = all
-    const maxTier = Math.min(this.depth + 1, MONSTER_DEFS.length) - 1;
+    // Tier progression spread across 10 depths
+    // depth 1: rat, 2: +goblin, 3: +snake, 4: +archer, 5: +ogre, 6: +ghost, 7: +slime, 8: +skeleton, 9: +wraith, 10: +fire imp
+    const tierByDepth = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    const maxTier = Math.min((tierByDepth[Math.min(this.depth, tierByDepth.length) - 1] ?? MONSTER_DEFS.length), MONSTER_DEFS.length) - 1;
     const def = MONSTER_DEFS[rand(0, maxTier)];
-    const scale = 1 + (this.depth - 1) * 0.15;
+    let scale = 1 + (this.depth - 1) * 0.12;
+    if (this.ascending) scale *= 1.2; // dungeon is "angry" during ascent
     const mx = rand(room.x, room.x + room.w - 1);
     const my = rand(room.y, room.y + room.h - 1);
 
@@ -305,21 +431,34 @@ export class GameState {
 
     const roll = Math.random();
     let id: string;
-    if (roll < 0.25) id = "health potion";
-    else if (roll < 0.35) id = "ration";
-    else if (roll < 0.45) id = "throwing knife";
-    else if (roll < 0.55) id = "scroll of teleport";
-    else if (roll < 0.60) id = "scroll of identify";
-    else if (roll < 0.70) id = this.depth >= 3 ? "long sword" : "short sword";
-    else if (roll < 0.80) id = this.depth >= 3 ? "chain mail" : "leather armor";
+    if (roll < 0.18) id = "health potion";
+    else if (roll < 0.24) id = "potion of strength";
+    else if (roll < 0.28) id = "potion of poison";
+    else if (roll < 0.36) id = "ration";
+    else if (roll < 0.44) id = "throwing knife";
+    else if (roll < 0.52) id = "scroll of teleport";
+    else if (roll < 0.56) id = "scroll of identify";
+    else if (roll < 0.60) id = "scroll of enchant";
+    else if (roll < 0.63) id = "scroll of mapping";
+    else if (roll < 0.66) id = "scroll of remove curse";
+    else if (roll < 0.76) id = this.depth >= 3 ? "long sword" : "short sword";
+    else if (roll < 0.86) id = this.depth >= 3 ? "chain mail" : "leather armor";
     else id = "whetstone";
 
-    this.items.push(this.makeItem(ix, iy, id));
+    const item = this.makeItem(ix, iy, id);
+    // 20% chance ground equipment is cursed (depth 3+)
+    if (item.type === "equipment" && this.depth >= 3 && Math.random() < 0.2) {
+      item.cursed = true;
+    }
+    this.items.push(item);
   }
 
-  private isPassable(x: number, y: number): boolean {
+  private isPassable(x: number, y: number, passWall = false): boolean {
     if (x < 0 || x >= MAP_W || y < 0 || y >= MAP_H) return false;
-    return this.cells[y][x].tile !== Tile.Wall;
+    const tile = this.cells[y][x].tile;
+    if (tile === Tile.Wall) return passWall;
+    if (tile === Tile.DeepWater) return passWall; // only ghosts/flying can cross
+    return true;
   }
 
   private monsterAt(x: number, y: number): Creature | undefined {
@@ -370,7 +509,10 @@ export class GameState {
 
     const monster = this.monsterAt(nx, ny);
     const isPet = this.petAlive && this.pet.x === nx && this.pet.y === ny;
-    if (monster) {
+    if (monster && monster.nameId === "shopkeeper") {
+      this.msg(t("shopkeeperGreet"), "system");
+    } else if (monster) {
+      this.animations.addFlash(monster.x, monster.y, "#ff0000");
       this.combat(this.player, monster);
     } else if (isPet) {
       // Swap positions with pet
@@ -386,6 +528,7 @@ export class GameState {
 
       this.checkAutoPickUp(nx, ny);
     } else if (this.isPassable(nx, ny)) {
+      this.animations.addMove(this.player.x, this.player.y, nx, ny);
       this.player.x = nx;
       this.player.y = ny;
 
@@ -413,6 +556,31 @@ export class GameState {
       saveGame(this);
     } else {
       this.msg(t("noStairs"), "system");
+    }
+  }
+
+  tryAscend() {
+    if (this.gameOver) return;
+    if (!this.ascending) {
+      this.msg(t("noStairsUp"), "system");
+      return;
+    }
+    if (this.cells[this.player.y][this.player.x].tile === Tile.StairsUp) {
+      this.depth--;
+      if (this.depth <= 0) {
+        // Escaped the dungeon!
+        sfx.win();
+        this.msg(t("escaped"), "system");
+        this.gameOver = true;
+        this.won = true;
+        return;
+      }
+      sfx.descend();
+      this.msg(t("ascend")(this.depth), "system");
+      this.generateLevel();
+      saveGame(this);
+    } else {
+      this.msg(t("noStairsUp"), "system");
     }
   }
 
@@ -453,7 +621,8 @@ export class GameState {
     }
 
     // Stop if standing on stairs
-    if (this.cells[this.player.y][this.player.x].tile === Tile.StairsDown) {
+    const tile = this.cells[this.player.y][this.player.x].tile;
+    if (tile === Tile.StairsDown || tile === Tile.StairsUp) {
       this.stopAutoExplore(t("autoStairs"));
       return false;
     }
@@ -480,7 +649,8 @@ export class GameState {
       this.stopAutoExplore(t("autoItem"));
       return false;
     }
-    if (this.cells[this.player.y][this.player.x].tile === Tile.StairsDown) {
+    const postTile = this.cells[this.player.y][this.player.x].tile;
+    if (postTile === Tile.StairsDown || postTile === Tile.StairsUp) {
       this.stopAutoExplore(t("autoStairs"));
       return false;
     }
@@ -595,6 +765,15 @@ export class GameState {
     this.showMinimap = false;
     this.showInventory = false;
     this.inventoryCursor = 0;
+    this.ascending = false;
+    this.identifiedTypes = new Set();
+    this.abilities = [];
+    this.abilityCooldowns = {};
+    this.deadSkeletons = [];
+    this.gold = 0;
+    this.pendingBuy = null;
+    this.burningTiles = new Map();
+    this.randomizeLabels();
     deleteSave();
     this.generateLevel();
     this.msg(t("welcome"), "system");
@@ -603,12 +782,70 @@ export class GameState {
   private endTurn() {
     this.turnCount++;
     this.processStatusEffects();
+    this.processLavaDamage();
+    this.processBurningGrass();
     this.processHunger();
+    this.processSkeletonReassembly();
     this.processPet();
     this.processMonsters();
+    // Tick ability cooldowns
+    for (const key of Object.keys(this.abilityCooldowns)) {
+      if (this.abilityCooldowns[key] > 0) this.abilityCooldowns[key]--;
+    }
     // Blind reduces FOV radius
     const fov = this.statusMgr.has("blind") ? 3 : this.fovRadius;
     computeFOV(this.cells, this.player.x, this.player.y, fov);
+    this.showContextInfo();
+  }
+
+  private showContextInfo() {
+    // Replace any previous info message instead of stacking
+    // Remove trailing info messages to prevent spam
+    while (this.messages.length > 0 && this.messages[this.messages.length - 1].type === "info") {
+      this.messages.pop();
+    }
+
+    // Show adjacent monster info
+    for (const [dx, dy] of DIRS4) {
+      const nx = this.player.x + dx, ny = this.player.y + dy;
+      const m = this.monsters.find(m => m.x === nx && m.y === ny);
+      if (m) {
+        const special = this.getMonsterSpecial(m.nameId);
+        const info = special
+          ? `${name(m.nameId)} HP:${m.hp}/${m.maxHp} ATK:${m.attack} DEF:${m.defense} (${special})`
+          : `${name(m.nameId)} HP:${m.hp}/${m.maxHp} ATK:${m.attack} DEF:${m.defense}`;
+        this.msg(info, "info");
+        break; // only show one
+      }
+    }
+    // Show item stats on ground
+    const item = this.items.find(i => i.x === this.player.x && i.y === this.player.y);
+    if (item && !item.price) {
+      let stats = "";
+      if (item.type === "equipment" && item.equipSlot === "weapon") stats = ` +${item.value} ATK`;
+      else if (item.type === "equipment" && item.equipSlot === "armor") stats = ` +${item.value} DEF`;
+      else if (item.type === "potion" && this.identifiedTypes.has(item.nameId)) stats = item.nameId === "health potion" ? ` +${item.value} HP` : "";
+      else if (item.type === "food") stats = ` +${item.value} satiety`;
+      else if (item.type === "throwing") stats = ` ${item.value} dmg`;
+      if (item.enchantment) stats += ` [${item.enchantment.type}]`;
+      if (stats) this.msg(`${this.getItemDisplayName(item)}:${stats}`, "info");
+    }
+  }
+
+  private getMonsterSpecial(nameId: string): string | null {
+    const specials: Record<string, string> = {
+      snake: "poison",
+      ogre: "knockback",
+      ghost: "blind, pass walls",
+      archer: "ranged",
+      slime: "splits",
+      dragon: "bleed",
+      lich: "summon, blind, ranged",
+      skeleton: "reassembles",
+      wraith: "drains max HP",
+      "fire imp": "ranged fire",
+    };
+    return specials[nameId] ?? null;
   }
 
   private processStatusEffects() {
@@ -620,6 +857,90 @@ export class GameState {
         sfx.playerDied();
         this.msg(t("youDied"), "combat");
         this.gameOver = true;
+      }
+    }
+  }
+
+  private processBurningGrass() {
+    const toRemove: string[] = [];
+    for (const [key, turns] of this.burningTiles) {
+      const [sx, sy] = key.split(",").map(Number);
+      // Damage entities on burning tile
+      if (this.player.x === sx && this.player.y === sy) {
+        this.player.hp -= 2;
+        this.msg(t("burningGrassDmg"), "combat");
+        if (this.player.hp <= 0) {
+          sfx.playerDied();
+          this.msg(t("youDied"), "combat");
+          this.gameOver = true;
+        }
+      }
+      // Spread to adjacent grass
+      if (turns === 4 || turns === 2) { // spread twice during lifetime
+        for (const [ddx, ddy] of [[-1,0],[1,0],[0,-1],[0,1]]) {
+          const nx = sx + ddx, ny = sy + ddy;
+          if (nx >= 0 && nx < MAP_W && ny >= 0 && ny < MAP_H) {
+            if (this.cells[ny][nx].tile === Tile.Grass) {
+              const nk = `${nx},${ny}`;
+              if (!this.burningTiles.has(nk)) {
+                this.cells[ny][nx].tile = Tile.BurningGrass;
+                this.burningTiles.set(nk, 5);
+              }
+            }
+          }
+        }
+      }
+      if (turns <= 1) {
+        this.cells[sy][sx].tile = Tile.Floor;
+        toRemove.push(key);
+      } else {
+        this.burningTiles.set(key, turns - 1);
+      }
+    }
+    for (const k of toRemove) this.burningTiles.delete(k);
+  }
+
+  private processLavaDamage() {
+    if (this.cells[this.player.y][this.player.x].tile === Tile.Lava) {
+      this.player.hp -= 3;
+      this.msg(t("lavaDamage"), "combat");
+      if (this.player.hp <= 0) {
+        sfx.playerDied();
+        this.msg(t("youDied"), "combat");
+        this.gameOver = true;
+      }
+    }
+    // Monsters on lava take damage (fire imps immune)
+    for (const m of [...this.monsters]) {
+      if (this.cells[m.y][m.x].tile === Tile.Lava && m.nameId !== "fire imp") {
+        m.hp -= 3;
+        if (m.hp <= 0) {
+          this.monsters = this.monsters.filter(mm => mm !== m);
+        }
+      }
+    }
+  }
+
+  private processSkeletonReassembly() {
+    for (let i = this.deadSkeletons.length - 1; i >= 0; i--) {
+      const sk = this.deadSkeletons[i];
+      sk.turnsLeft--;
+      if (sk.turnsLeft <= 0) {
+        this.deadSkeletons.splice(i, 1);
+        // Only reassemble if the tile is passable and not occupied
+        if (this.isPassable(sk.x, sk.y) && !this.monsterAt(sk.x, sk.y) &&
+            !(sk.x === this.player.x && sk.y === this.player.y)) {
+          this.monsters.push({
+            x: sk.x, y: sk.y,
+            char: "z", color: "#cccccc", nameId: "skeleton",
+            hp: Math.ceil(sk.maxHp / 2), maxHp: sk.maxHp,
+            attack: sk.atk, defense: sk.def,
+            xpValue: sk.xp,
+          });
+          if (this.cells[sk.y][sk.x].visible) {
+            this.msg(t("skeletonReassemble"), "combat");
+          }
+        }
       }
     }
   }
@@ -690,7 +1011,9 @@ export class GameState {
       sfx.monsterDie();
       this.msg(t("petKills")(name(target.nameId)), "pet");
       this.kills++;
+      this.gold += rand(1, 3);
       this.gainXp(Math.ceil((target.xpValue ?? 5) / 2));
+      this.checkSkeletonReassembly(target);
       this.dropLoot(target);
       this.monsters = this.monsters.filter((m) => m !== target);
     }
@@ -725,28 +1048,62 @@ export class GameState {
     if (attacker === this.player) {
       sfx.playerAttack();
       this.msg(t("youHit")(name(defender.nameId), dmg), "combat");
+      // Weapon enchantment effects
+      const wep = this.inventory.equipped.weapon;
+      if (wep?.enchantment) {
+        this.applyWeaponEnchant(wep.enchantment, defender);
+      }
       // Degrade weapon on player attack
-      const brokenW = this.inventory.degradeWeapon();
-      if (brokenW) this.msg(t("itemBreaks")(name(brokenW)), "system");
+      const wepResult = this.inventory.degradeWeapon();
+      if (wepResult.broken) this.msg(t("itemBreaks")(name(wepResult.broken)), "system");
+      else if (wepResult.warning) this.msg(t("durabilityWarning"), "system");
       if (defender.hp <= 0) {
         sfx.monsterDie();
         this.msg(t("monsterDies")(name(defender.nameId)), "combat");
         this.kills++;
+        this.gold += rand(1, 5);
         this.gainXp(defender.xpValue ?? 5);
+        // Vampiric heal on kill
+        if (wep?.enchantment?.type === "vampiric") {
+          const heal = Math.min(wep.enchantment.level, this.player.maxHp - this.player.hp);
+          if (heal > 0) {
+            this.player.hp += heal;
+            this.msg(t("vampiricHeal")(heal), "pickup");
+          }
+        }
         // Slime splits on death
         if (defender.splits) {
           this.splitMonster(defender);
         }
+        this.checkSkeletonReassembly(defender);
         this.dropLoot(defender);
         this.monsters = this.monsters.filter((m) => m !== defender);
       }
     } else {
       sfx.playerHurt();
+      this.animations.addFlash(this.player.x, this.player.y, "#ff3333");
       this.msg(t("monsterHitsYou")(name(attacker.nameId), dmg), "combat");
 
+      // Armor enchantment: thorns reflect damage
+      const arm = this.inventory.equipped.armor;
+      if (arm?.enchantment?.type === "thorns") {
+        const reflect = rand(1, arm.enchantment.level + 1);
+        attacker.hp -= reflect;
+        this.msg(t("thornsReflect")(reflect), "combat");
+        if (attacker.hp <= 0) {
+          sfx.monsterDie();
+          this.msg(t("monsterDies")(name(attacker.nameId)), "combat");
+          this.kills++;
+          this.gainXp(attacker.xpValue ?? 5);
+          this.dropLoot(attacker);
+          this.monsters = this.monsters.filter((m) => m !== attacker);
+        }
+      }
+
       // Degrade armor when player is hit
-      const brokenA = this.inventory.degradeArmor();
-      if (brokenA) this.msg(t("itemBreaks")(name(brokenA)), "system");
+      const armResult = this.inventory.degradeArmor();
+      if (armResult.broken) this.msg(t("itemBreaks")(name(armResult.broken)), "system");
+      else if (armResult.warning) this.msg(t("durabilityWarning"), "system");
 
       // Monster special abilities on attack
       if (attacker.nameId === "snake") {
@@ -760,8 +1117,17 @@ export class GameState {
         this.statusMgr.add("blind", 2, 0);
         this.msg(t("ghostBlind"), "combat");
       } else if (attacker.nameId === "dragon") {
-        this.statusMgr.add("bleed", 3, 2);
+        this.statusMgr.add("bleed", 2, 2);
         this.msg(t("dragonBleed"), "combat");
+      } else if (attacker.nameId === "wraith") {
+        this.player.maxHp = Math.max(5, this.player.maxHp - 1);
+        if (this.player.hp > this.player.maxHp) this.player.hp = this.player.maxHp;
+        this.msg(t("wraithDrain"), "combat");
+      }
+
+      // Swift armor: immunity to slow
+      if (arm?.enchantment?.type === "swift" && this.statusMgr.has("slow")) {
+        this.statusMgr.effects = this.statusMgr.effects.filter(e => e.type !== "slow");
       }
 
       if (this.player.hp <= 0) {
@@ -769,6 +1135,27 @@ export class GameState {
         this.msg(t("youDied"), "combat");
         this.gameOver = true;
       }
+    }
+  }
+
+  private checkSkeletonReassembly(m: Creature) {
+    if (m.nameId === "skeleton" && Math.random() < 0.5) {
+      this.deadSkeletons.push({
+        x: m.x, y: m.y, turnsLeft: 3,
+        hp: m.maxHp, maxHp: m.maxHp,
+        atk: m.attack, def: m.defense,
+        xp: m.xpValue ?? 12,
+      });
+    }
+  }
+
+  private applyWeaponEnchant(ench: Enchantment, target: Creature) {
+    if (ench.type === "fire" && Math.random() < 0.3) {
+      target.burnTurns = 2;
+      this.msg(t("enchantBurn"), "combat");
+    } else if (ench.type === "ice" && Math.random() < 0.3) {
+      target.stunTurns = (target.stunTurns ?? 0) + 1;
+      this.msg(t("enchantFreeze"), "combat");
     }
   }
 
@@ -812,16 +1199,132 @@ export class GameState {
     }
   }
 
+  private lichSummon(lich: Creature) {
+    const dirs = [[-1,0],[1,0],[0,-1],[0,1]];
+    const count = rand(1, 2);
+    let spawned = 0;
+    for (const [dx, dy] of dirs) {
+      if (spawned >= count) break;
+      const nx = lich.x + dx;
+      const ny = lich.y + dy;
+      if (this.isPassable(nx, ny) && !this.monsterAt(nx, ny) &&
+          !(nx === this.player.x && ny === this.player.y)) {
+        const scale = 1 + (this.depth - 1) * 0.12;
+        this.monsters.push({
+          x: nx, y: ny,
+          char: "z", color: "#cccccc",
+          nameId: "skeleton",
+          hp: Math.ceil(9 * scale), maxHp: Math.ceil(9 * scale),
+          attack: Math.ceil(4 * scale), defense: Math.ceil(2 * scale),
+          xpValue: Math.ceil(12 * scale),
+        });
+        spawned++;
+      }
+    }
+    if (spawned > 0) {
+      this.msg(t("lichSummon"), "combat");
+    }
+  }
+
   private gainXp(amount: number) {
     this.xp += amount;
     while (this.xp >= this.xpToNext) {
       this.xp -= this.xpToNext;
       this.level++;
-      this.xpToNext = Math.ceil(this.xpToNext * 1.3);
+      this.xpToNext = Math.ceil(this.xpToNext * 1.25);
       this.pendingLevelUp = true;
       sfx.pickupWeapon();
       this.msg(t("levelUp")(this.level), "system");
+      // Unlock abilities at levels 3, 6, 9
+      if (this.level === 3 && !this.abilities.includes("dash")) {
+        this.abilities.push("dash");
+        this.msg(t("abilityUnlock")("Dash"), "system");
+      } else if (this.level === 6 && !this.abilities.includes("shield_bash")) {
+        this.abilities.push("shield_bash");
+        this.msg(t("abilityUnlock")("Shield Bash"), "system");
+      } else if (this.level === 9 && !this.abilities.includes("battle_cry")) {
+        this.abilities.push("battle_cry");
+        this.msg(t("abilityUnlock")("Battle Cry"), "system");
+      }
     }
+  }
+
+  /** Activate ability by index (0=dash, 1=shield bash, 2=battle cry) */
+  useAbility(index: number, dx?: number, dy?: number) {
+    const abilityName = this.abilities[index];
+    if (!abilityName) return;
+    if ((this.abilityCooldowns[abilityName] ?? 0) > 0) {
+      this.msg(t("abilityCooldown")(this.abilityCooldowns[abilityName]), "system");
+      return;
+    }
+
+    if (abilityName === "dash") {
+      // Move 3 tiles through enemies dealing 50% ATK
+      if (!dx || !dy) return; // need direction
+      // dx/dy here is the dash direction
+    } else if (abilityName === "shield_bash") {
+      // Stun adjacent monster for 2 turns
+      const adj = this.monsters.find(m =>
+        Math.abs(m.x - this.player.x) + Math.abs(m.y - this.player.y) <= 1 &&
+        this.cells[m.y][m.x].visible && m.nameId !== "shopkeeper"
+      );
+      if (!adj) {
+        this.msg(t("noTarget"), "system");
+        return;
+      }
+      adj.stunTurns = (adj.stunTurns ?? 0) + 2;
+      sfx.playerAttack();
+      this.msg(t("shieldBash")(name(adj.nameId)), "combat");
+      this.abilityCooldowns["shield_bash"] = 12;
+      this.endTurn();
+    } else if (abilityName === "battle_cry") {
+      // Fear all visible monsters for 3 turns
+      let feared = 0;
+      for (const m of this.monsters) {
+        if (this.cells[m.y][m.x].visible && m.nameId !== "shopkeeper") {
+          m.fearTurns = (m.fearTurns ?? 0) + 3;
+          feared++;
+        }
+      }
+      sfx.playerAttack();
+      this.msg(t("battleCry")(feared), "combat");
+      this.abilityCooldowns["battle_cry"] = 20;
+      this.endTurn();
+    }
+  }
+
+  /** Activate dash in a direction */
+  useDash(dx: number, dy: number) {
+    if (!this.abilities.includes("dash")) return;
+    if ((this.abilityCooldowns["dash"] ?? 0) > 0) {
+      this.msg(t("abilityCooldown")(this.abilityCooldowns["dash"]), "system");
+      return;
+    }
+    const atkDmg = Math.max(1, Math.ceil(this.getEffectiveAttack() * 0.5));
+    for (let i = 0; i < 3; i++) {
+      const nx = this.player.x + dx;
+      const ny = this.player.y + dy;
+      if (!this.isPassable(nx, ny)) break;
+      const monster = this.monsterAt(nx, ny);
+      if (monster) {
+        monster.hp -= atkDmg;
+        this.msg(t("dashHit")(name(monster.nameId), atkDmg), "combat");
+        if (monster.hp <= 0) {
+          sfx.monsterDie();
+          this.msg(t("monsterDies")(name(monster.nameId)), "combat");
+          this.kills++;
+          this.gainXp(monster.xpValue ?? 5);
+          this.checkSkeletonReassembly(monster);
+          this.dropLoot(monster);
+          this.monsters = this.monsters.filter(m => m !== monster);
+        }
+      }
+      this.player.x = nx;
+      this.player.y = ny;
+    }
+    sfx.playerAttack();
+    this.abilityCooldowns["dash"] = 15;
+    this.endTurn();
   }
 
   /** Apply level-up choice: 0=HP, 1=ATK, 2=DEF */
@@ -845,9 +1348,20 @@ export class GameState {
     const dropChance: Record<string, number> = {
       rat: 0.2, goblin: 0.35, snake: 0.4, ogre: 0.6,
       ghost: 0.3, archer: 0.4, slime: 0.15, "small slime": 0.1,
+      dragon: 1.0, lich: 1.0, skeleton: 0.15, wraith: 0.35, "fire imp": 0.3,
     };
     const chance = dropChance[monster.nameId] ?? 0.3;
     if (Math.random() >= chance) return;
+
+    // Bosses and depth 4+ monsters have chance to drop enchanted equipment
+    const isBoss = monster.nameId === "dragon" || monster.nameId === "lich";
+    if ((isBoss || (this.depth >= 4 && Math.random() < 0.15)) && Math.random() < (isBoss ? 1.0 : 0.5)) {
+      const enchItem = this.makeEnchantedItem(monster.x, monster.y);
+      this.items.push(enchItem);
+      sfx.drop();
+      this.msg(t("monsterDrops")(name(monster.nameId)), "pickup");
+      return;
+    }
 
     const roll = Math.random();
     let id: string;
@@ -861,6 +1375,25 @@ export class GameState {
     this.msg(t("monsterDrops")(name(monster.nameId)), "pickup");
   }
 
+  private makeEnchantedItem(x: number, y: number): Item {
+    const weaponEnchants: EnchantType[] = ["fire", "ice", "vampiric"];
+    const armorEnchants: EnchantType[] = ["thorns", "swift"];
+    const isWeapon = Math.random() < 0.5;
+    if (isWeapon) {
+      const baseId = this.depth >= 6 ? "long sword" : "short sword";
+      const item = this.makeItem(x, y, baseId);
+      const etype = weaponEnchants[rand(0, weaponEnchants.length - 1)];
+      item.enchantment = { type: etype, level: rand(1, 2) };
+      return item;
+    } else {
+      const baseId = this.depth >= 6 ? "chain mail" : "leather armor";
+      const item = this.makeItem(x, y, baseId);
+      const etype = armorEnchants[rand(0, armorEnchants.length - 1)];
+      item.enchantment = { type: etype, level: rand(1, 2) };
+      return item;
+    }
+  }
+
   /** Check for auto-pickup (only amulet) or notify of items on ground */
   private checkAutoPickUp(x: number, y: number) {
     const item = this.items.find((i) => i.x === x && i.y === y);
@@ -869,11 +1402,15 @@ export class GameState {
       sfx.win();
       this.msg(t("foundAmulet"), "pickup");
       this.items = this.items.filter((i) => i !== item);
-      this.gameOver = true;
-      this.won = true;
+      this.ascending = true;
       return;
     }
-    this.msg(t("itemOnGround")(name(item.nameId)), "system");
+    if (item.price) {
+      this.pendingBuy = item;
+      this.msg(t("shopBuy")(this.getItemDisplayName(item), item.price), "system");
+    } else {
+      this.msg(t("itemOnGround")(this.getItemDisplayName(item)), "system");
+    }
   }
 
   private processTrap(x: number, y: number) {
@@ -917,7 +1454,7 @@ export class GameState {
           if (this.isPassable(mx, my) && !this.monsterAt(mx, my)) {
             // Spawn a rat or goblin
             const def = MONSTER_DEFS[rand(0, 1)];
-            const scale = 1 + (this.depth - 1) * 0.15;
+            const scale = 1 + (this.depth - 1) * 0.12;
             this.monsters.push({
               x: mx, y: my,
               char: def.char, color: def.color, nameId: def.nameId,
@@ -932,6 +1469,34 @@ export class GameState {
     }
   }
 
+  /** Confirm buying a shop item */
+  confirmBuy() {
+    if (!this.pendingBuy) return;
+    const item = this.pendingBuy;
+    if (this.gold < (item.price ?? 0)) {
+      this.msg(t("shopNoGold"), "system");
+      this.pendingBuy = null;
+      return;
+    }
+    if (this.inventory.isFull()) {
+      this.msg(t("inventoryFull"), "system");
+      this.pendingBuy = null;
+      return;
+    }
+    this.gold -= item.price!;
+    item.price = undefined;
+    this.inventory.add(item);
+    this.items = this.items.filter(i => i !== item);
+    sfx.pickupPotion();
+    this.msg(t("shopBought")(this.getItemDisplayName(item)), "pickup");
+    this.pendingBuy = null;
+    this.endTurn();
+  }
+
+  declineBuy() {
+    this.pendingBuy = null;
+  }
+
   /** Try to pick up item at player's feet (called by 'g' key) */
   tryPickUp() {
     if (this.gameOver) return;
@@ -940,13 +1505,18 @@ export class GameState {
       this.msg(t("nothingHere"), "system");
       return;
     }
-    // Amulet is always auto-picked up
+    // Amulet is always auto-picked up — begins ascension
     if (item.type === "amulet") {
       sfx.win();
       this.msg(t("foundAmulet"), "pickup");
       this.items = this.items.filter((i) => i !== item);
-      this.gameOver = true;
-      this.won = true;
+      this.ascending = true;
+      return;
+    }
+    // Shop items need buying
+    if (item.price) {
+      this.pendingBuy = item;
+      this.msg(t("shopBuy")(this.getItemDisplayName(item), item.price), "system");
       return;
     }
     if (this.inventory.isFull()) {
@@ -956,7 +1526,7 @@ export class GameState {
     this.inventory.add(item);
     this.items = this.items.filter((i) => i !== item);
     sfx.pickupPotion();
-    this.msg(t("pickUpItem")(name(item.nameId)), "pickup");
+    this.msg(t("pickUpItem")(this.getItemDisplayName(item)), "pickup");
     this.endTurn();
   }
 
@@ -966,10 +1536,26 @@ export class GameState {
     if (!item) return;
 
     if (item.type === "potion") {
-      sfx.pickupPotion();
-      const healed = Math.min(item.value, this.player.maxHp - this.player.hp);
-      this.player.hp += healed;
-      this.msg(t("drinkPotion")(name(item.nameId), healed), "pickup");
+      this.identifiedTypes.add(item.nameId);
+      if (item.nameId === "potion of strength") {
+        sfx.pickupWeapon();
+        this.player.attack += item.value;
+        this.msg(t("drinkStrength")(item.value), "pickup");
+      } else if (item.nameId === "potion of poison") {
+        sfx.playerHurt();
+        this.player.hp -= item.value;
+        this.msg(t("drinkPoison")(item.value), "combat");
+        if (this.player.hp <= 0) {
+          sfx.playerDied();
+          this.msg(t("youDied"), "combat");
+          this.gameOver = true;
+        }
+      } else {
+        sfx.pickupPotion();
+        const healed = Math.min(item.value, this.player.maxHp - this.player.hp);
+        this.player.hp += healed;
+        this.msg(t("drinkPotion")(name(item.nameId), healed), "pickup");
+      }
       this.inventory.remove(index);
       this.showInventory = false;
       this.endTurn();
@@ -982,9 +1568,19 @@ export class GameState {
       this.showInventory = false;
       this.endTurn();
     } else if (item.type === "equipment") {
+      // Check if slot is blocked by a cursed item before attempting equip
+      const currentInSlot = this.inventory.equipped[item.equipSlot!];
+      if (currentInSlot?.cursed) {
+        this.msg(t("cursedSlot"), "system");
+        this.showInventory = false;
+        return;
+      }
       const prev = this.inventory.equip(index);
       sfx.pickupWeapon();
       this.msg(t("equipItem")(name(item.nameId)), "pickup");
+      if (item.cursed) {
+        this.msg(t("equipCursed"), "combat");
+      }
       if (prev) {
         this.msg(t("unequipItem")(name(prev.nameId)), "pickup");
       }
@@ -1006,8 +1602,8 @@ export class GameState {
   }
 
   private useScroll(item: Item, index: number) {
+    this.identifiedTypes.add(item.nameId);
     if (item.nameId === "scroll of teleport") {
-      // Teleport to random passable cell
       let attempts = 0;
       while (attempts < 100) {
         const rx = rand(1, MAP_W - 2);
@@ -1022,19 +1618,56 @@ export class GameState {
       sfx.descend();
       this.msg(t("useTeleport"), "pickup");
     } else if (item.nameId === "scroll of identify") {
-      // Reveal equipment durability info (show as message)
+      // Identify all unidentified potions/scrolls in inventory + reveal curse status
+      let identifiedAny = false;
+      for (const inv of this.inventory.items) {
+        if ((inv.type === "potion" || inv.type === "scroll") && !this.identifiedTypes.has(inv.nameId)) {
+          this.identifiedTypes.add(inv.nameId);
+          this.msg(t("identifyReveal")(name(inv.nameId)), "pickup");
+          identifiedAny = true;
+        }
+      }
+      // Reveal curse status on equipped items
       const wep = this.inventory.equipped.weapon;
       const arm = this.inventory.equipped.armor;
-      if (wep && wep.durability !== undefined) {
-        this.msg(t("identify")(name(wep.nameId), wep.durability, wep.maxDurability!), "pickup");
+      if (wep) {
+        this.identifiedTypes.add("curse:" + wep.nameId);
+        if (wep.cursed) this.msg(t("identifyCursed")(name(wep.nameId)), "combat");
       }
-      if (arm && arm.durability !== undefined) {
-        this.msg(t("identify")(name(arm.nameId), arm.durability, arm.maxDurability!), "pickup");
+      if (arm) {
+        this.identifiedTypes.add("curse:" + arm.nameId);
+        if (arm.cursed) this.msg(t("identifyCursed")(name(arm.nameId)), "combat");
       }
-      if (!wep && !arm) {
+      if (!identifiedAny && !wep && !arm) {
         this.msg(t("identifyNothing"), "system");
       }
       sfx.pickupPotion();
+    } else if (item.nameId === "scroll of enchant") {
+      const wep = this.inventory.equipped.weapon;
+      if (wep) {
+        wep.value += 1;
+        sfx.pickupWeapon();
+        this.msg(t("enchantWeapon")(name(wep.nameId)), "pickup");
+      } else {
+        this.msg(t("enchantNothing"), "system");
+      }
+    } else if (item.nameId === "scroll of remove curse") {
+      const wep = this.inventory.equipped.weapon;
+      const arm = this.inventory.equipped.armor;
+      let removed = false;
+      if (wep?.cursed) { wep.cursed = false; removed = true; }
+      if (arm?.cursed) { arm.cursed = false; removed = true; }
+      sfx.pickupPotion();
+      this.msg(removed ? t("removeCurse") : t("removeCurseNone"), removed ? "pickup" : "system");
+    } else if (item.nameId === "scroll of mapping") {
+      // Reveal entire level
+      for (let y = 0; y < MAP_H; y++) {
+        for (let x = 0; x < MAP_W; x++) {
+          this.cells[y][x].revealed = true;
+        }
+      }
+      sfx.pickupPotion();
+      this.msg(t("useMapping"), "pickup");
     }
     this.inventory.remove(index);
     this.showInventory = false;
@@ -1085,7 +1718,7 @@ export class GameState {
     item.y = this.player.y;
     this.items.push(item);
     sfx.drop();
-    this.msg(t("dropItem")(name(item.nameId)), "system");
+    this.msg(t("dropItem")(this.getItemDisplayName(item)), "system");
     if (this.inventoryCursor >= this.inventory.items.length && this.inventoryCursor > 0) {
       this.inventoryCursor--;
     }
@@ -1102,8 +1735,28 @@ export class GameState {
   }
 
   private processMonsters() {
+    // Process monster statuses first
+    for (const m of [...this.monsters]) {
+      if (m.burnTurns && m.burnTurns > 0) {
+        m.hp -= 2;
+        m.burnTurns--;
+        if (m.hp <= 0) {
+          this.msg(t("monsterDies")(name(m.nameId)), "combat");
+          this.kills++;
+          this.gainXp(m.xpValue ?? 5);
+          this.dropLoot(m);
+          this.monsters = this.monsters.filter(mm => mm !== m);
+        }
+      }
+      if (m.fearTurns && m.fearTurns > 0) m.fearTurns--;
+      if (m.stunTurns && m.stunTurns > 0) m.stunTurns--;
+    }
+
     for (const m of this.monsters) {
       if (!this.cells[m.y][m.x].visible) continue;
+
+      // Stunned: skip turn
+      if (m.stunTurns && m.stunTurns > 0) continue;
 
       // Water slow: skip this monster's turn
       if (m.waterSlow) {
@@ -1117,6 +1770,12 @@ export class GameState {
 
       // Grass concealment: player on grass is invisible to monsters >1 cell away
       const playerConcealed = this.isConcealed(this.player) && distP > 1;
+
+      // Fear: flee from player
+      if (m.fearTurns && m.fearTurns > 0) {
+        this.fleeFromPlayer(m, dxP, dyP);
+        continue;
+      }
 
       // Goblin flee: runs away when low HP
       if (m.nameId === "goblin" && m.hp <= Math.ceil(m.maxHp * 0.3)) {
@@ -1135,12 +1794,63 @@ export class GameState {
 
       if (playerConcealed) continue;
 
+      // Lich: summon skeletons and cast blind at range
+      if (m.nameId === "lich" && distP <= 8 && !playerConcealed && this.hasLOS(m.x, m.y, this.player.x, this.player.y)) {
+        // Summon 1-2 skeletons nearby
+        if (Math.random() < 0.4) {
+          this.lichSummon(m);
+        }
+        // Cast blind at range
+        if (distP > 1 && distP <= 6) {
+          this.statusMgr.add("blind", 3, 0);
+          sfx.playerHurt();
+          this.msg(t("lichBlind"), "combat");
+          const dmg = Math.max(1, m.attack - this.getEffectiveDefense() + rand(-2, 2));
+          this.player.hp -= dmg;
+          this.msg(t("archerShoot")(name(m.nameId), dmg), "combat");
+          const armR = this.inventory.degradeArmor();
+          if (armR.broken) this.msg(t("itemBreaks")(name(armR.broken)), "system");
+          else if (armR.warning) this.msg(t("durabilityWarning"), "system");
+          if (this.player.hp <= 0) {
+            sfx.playerDied();
+            this.msg(t("youDied"), "combat");
+            this.gameOver = true;
+          }
+          continue;
+        }
+      }
+
+      // Fire imp: ranged fire attack that burns
+      if (m.nameId === "fire imp" && distP > 1 && distP <= 5 && !playerConcealed && this.hasLOS(m.x, m.y, this.player.x, this.player.y)) {
+        const dmg = Math.max(1, m.attack - this.getEffectiveDefense() + rand(-1, 1));
+        this.player.hp -= dmg;
+        this.statusMgr.add("burn", 3, 2);
+        sfx.playerHurt();
+        this.msg(t("fireImpAttack")(dmg), "combat");
+        // Set player's tile on fire if it's grass
+        const ptile = this.cells[this.player.y][this.player.x].tile;
+        if (ptile === Tile.Grass) {
+          this.cells[this.player.y][this.player.x].tile = Tile.BurningGrass;
+          this.burningTiles.set(`${this.player.x},${this.player.y}`, 5);
+        }
+        const armR2 = this.inventory.degradeArmor();
+        if (armR2.broken) this.msg(t("itemBreaks")(name(armR2.broken)), "system");
+        else if (armR2.warning) this.msg(t("durabilityWarning"), "system");
+        if (this.player.hp <= 0) {
+          sfx.playerDied();
+          this.msg(t("youDied"), "combat");
+          this.gameOver = true;
+        }
+        continue;
+      }
+
       // Archer: ranged attack from distance (with LOS check)
-      if (m.ranged && distP > 1 && distP <= 6 && !playerConcealed && this.hasLOS(m.x, m.y, this.player.x, this.player.y)) {
+      if (m.ranged && m.nameId !== "lich" && m.nameId !== "fire imp" && distP > 1 && distP <= 6 && !playerConcealed && this.hasLOS(m.x, m.y, this.player.x, this.player.y)) {
         this.rangedAttack(m);
         // Degrade armor when player is hit by ranged
-        const brokenAR = this.inventory.degradeArmor();
-        if (brokenAR) this.msg(t("itemBreaks")(name(brokenAR)), "system");
+        const armR2 = this.inventory.degradeArmor();
+        if (armR2.broken) this.msg(t("itemBreaks")(name(armR2.broken)), "system");
+        else if (armR2.warning) this.msg(t("durabilityWarning"), "system");
         continue;
       }
 

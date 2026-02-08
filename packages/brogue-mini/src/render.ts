@@ -1,13 +1,22 @@
 import { MAP_W, MAP_H, Tile } from "./map";
-import { GameState, MsgType } from "./game";
+import { GameState, MsgType, EnchantType } from "./game";
 import { t, name } from "./i18n";
 import { getLeaderboard } from "./save";
+
+const ENCHANT_COLORS: Record<EnchantType, string> = {
+  fire: "#ff6600",
+  ice: "#66ccff",
+  vampiric: "#cc0033",
+  thorns: "#33cc33",
+  swift: "#ffcc00",
+};
 
 const MSG_COLORS: Record<MsgType, string> = {
   combat: "#e74c3c",
   pickup: "#2ecc71",
   system: "#999999",
   pet: "#f39c12",
+  info: "#5599cc",
 };
 
 const CANVAS_W = 800;
@@ -36,11 +45,15 @@ const TILE_STYLES: Record<Tile, TileStyle> = {
   [Tile.Wall]: { char: "#", fg: "#4a4a6a", bg: "#16162a" },
   [Tile.Floor]: { char: "\u00B7", fg: "#2a2a4a", bg: "#0c0c18" },
   [Tile.StairsDown]: { char: ">", fg: "#ffffff", bg: "#0c0c18" },
+  [Tile.StairsUp]: { char: "<", fg: "#ffffff", bg: "#0c0c18" },
   [Tile.Water]: { char: "~", fg: "#4488cc", bg: "#0a1a3a" },
   [Tile.Grass]: { char: '"', fg: "#2d6b2d", bg: "#0a1a0a" },
   [Tile.TrapSpike]: { char: "\u00B7", fg: "#2a2a4a", bg: "#0c0c18" },    // Hidden: looks like floor
   [Tile.TrapTeleport]: { char: "\u00B7", fg: "#2a2a4a", bg: "#0c0c18" },
   [Tile.TrapAlarm]: { char: "\u00B7", fg: "#2a2a4a", bg: "#0c0c18" },
+  [Tile.DeepWater]: { char: "~", fg: "#1155aa", bg: "#050f2a" },
+  [Tile.Lava]: { char: "~", fg: "#ff4400", bg: "#330a00" },
+  [Tile.BurningGrass]: { char: '"', fg: "#ff6600", bg: "#1a0a00" },
 };
 
 // Revealed trap styles (shown after stepping on)
@@ -113,6 +126,18 @@ export function render(ctx: CanvasRenderingContext2D, game: GameState) {
     }
   }
 
+  // Flash overlays
+  for (let y = 0; y < MAP_H; y++) {
+    for (let x = 0; x < MAP_W; x++) {
+      if (!game.cells[y][x].visible) continue;
+      const flash = game.animations.getFlash(x, y);
+      if (flash) {
+        ctx.fillStyle = applyAlpha(flash.color, flash.alpha * 0.5);
+        ctx.fillRect(MAP_OX + x * CELL_W, y * CELL_H, CELL_W, CELL_H);
+      }
+    }
+  }
+
   // Items
   for (const item of game.items) {
     if (game.cells[item.y][item.x].visible) {
@@ -121,23 +146,31 @@ export function render(ctx: CanvasRenderingContext2D, game: GameState) {
     }
   }
 
-  // Monsters
+  // Monsters (with animation interpolation)
   for (const m of game.monsters) {
     if (game.cells[m.y][m.x].visible) {
+      const [rx, ry] = game.animations.getPosition(m.x, m.y);
       ctx.fillStyle = m.color;
-      ctx.fillText(m.char, MAP_OX + m.x * CELL_W + CELL_W / 2, m.y * CELL_H + 2);
+      ctx.fillText(m.char, MAP_OX + rx * CELL_W + CELL_W / 2, ry * CELL_H + 2);
     }
   }
 
-  // Pet
+  // Pet (with animation interpolation)
   if (game.petAlive && game.cells[game.pet.y][game.pet.x].visible) {
+    const [rx, ry] = game.animations.getPosition(game.pet.x, game.pet.y);
     ctx.fillStyle = game.pet.color;
-    ctx.fillText(game.pet.char, MAP_OX + game.pet.x * CELL_W + CELL_W / 2, game.pet.y * CELL_H + 2);
+    ctx.fillText(game.pet.char, MAP_OX + rx * CELL_W + CELL_W / 2, ry * CELL_H + 2);
   }
 
-  // Player
-  ctx.fillStyle = game.player.color;
-  ctx.fillText(game.player.char, MAP_OX + game.player.x * CELL_W + CELL_W / 2, game.player.y * CELL_H + 2);
+  // Player (with animation interpolation)
+  {
+    const [rx, ry] = game.animations.getPosition(game.player.x, game.player.y);
+    ctx.fillStyle = game.player.color;
+    ctx.fillText(game.player.char, MAP_OX + rx * CELL_W + CELL_W / 2, ry * CELL_H + 2);
+  }
+
+  // Cleanup expired animations
+  game.animations.cleanup();
 
   // --- Bottom panel (messages + stats) ---
   renderPanel(ctx, game);
@@ -329,13 +362,17 @@ function renderInventory(ctx: CanvasRenderingContext2D, game: GameState) {
   const wep = game.inventory.equipped.weapon;
   const arm = game.inventory.equipped.armor;
 
-  ctx.fillStyle = wep ? "#ccc" : "#555";
-  const wepText = wep ? `${wep.char} ${name(wep.nameId)} (+${wep.value} ${t("atk")}) [${wep.durability}/${wep.maxDurability}]` : `- (${t("atk")}: none)`;
+  ctx.fillStyle = wep ? (wep.enchantment ? ENCHANT_COLORS[wep.enchantment.type] : "#ccc") : "#555";
+  const wepName = wep ? game.getItemDisplayName(wep) : "";
+  const wepDur = wep?.durability !== undefined ? ` [${wep.durability}/${wep.maxDurability}]` : "";
+  const wepText = wep ? `${wep.char} ${wepName} (+${wep.value} ${t("atk")})${wepDur}` : `- (${t("atk")}: none)`;
   ctx.fillText(`  ${t("atk")}: ${wepText}`, bx + 20, curY);
   curY += 18;
 
-  ctx.fillStyle = arm ? "#ccc" : "#555";
-  const armText = arm ? `${arm.char} ${name(arm.nameId)} (+${arm.value} ${t("def")}) [${arm.durability}/${arm.maxDurability}]` : `- (${t("def")}: none)`;
+  ctx.fillStyle = arm ? (arm.enchantment ? ENCHANT_COLORS[arm.enchantment.type] : "#ccc") : "#555";
+  const armName = arm ? game.getItemDisplayName(arm) : "";
+  const armDur = arm?.durability !== undefined ? ` [${arm.durability}/${arm.maxDurability}]` : "";
+  const armText = arm ? `${arm.char} ${armName} (+${arm.value} ${t("def")})${armDur}` : `- (${t("def")}: none)`;
   ctx.fillText(`  ${t("def")}: ${armText}`, bx + 20, curY);
   curY += 24;
 
@@ -363,11 +400,24 @@ function renderInventory(ctx: CanvasRenderingContext2D, game: GameState) {
 
       ctx.font = UI_FONT;
       ctx.fillStyle = selected ? "#ffd700" : "#ccc";
-      let label = name(item.nameId);
-      if (item.type === "equipment" && item.durability !== undefined) {
+      let label = game.getItemDisplayName(item);
+      if (item.type === "equipment" && item.durability !== undefined && item.maxDurability) {
+        const frac = item.durability / item.maxDurability;
+        const durColor = frac > 0.5 ? "#2ecc71" : frac > 0.25 ? "#f39c12" : "#e74c3c";
         label += ` [${item.durability}/${item.maxDurability}]`;
+        // We'll draw the durability part colored separately below
+        ctx.fillText(label, bx + 42, curY);
+        // Re-draw durability in color
+        const durText = `[${item.durability}/${item.maxDurability}]`;
+        const baseWidth = ctx.measureText(label.replace(durText, "")).width;
+        ctx.fillStyle = durColor;
+        ctx.fillText(durText, bx + 42 + baseWidth, curY);
+        curY += 20;
+        continue;
       }
-      if (item.type === "potion") label += ` (+${item.value} HP)`;
+      const identified = game.identifiedTypes.has(item.nameId);
+      if (item.type === "potion" && identified && item.nameId === "health potion") label += ` (+${item.value} HP)`;
+      if (item.type === "potion" && identified && item.nameId === "potion of strength") label += ` (+${item.value} ATK)`;
       if (item.type === "food") label += ` (+${item.value})`;
       if (item.type === "throwing") label += ` (${item.value} dmg)`;
       ctx.fillText(label, bx + 42, curY);
@@ -442,7 +492,7 @@ function renderPanel(ctx: CanvasRenderingContext2D, game: GameState) {
   ctx.fillStyle = "#999";
   ctx.textAlign = "left";
   ctx.fillText(
-    `${t("lvLabel")}:${game.level} ${t("xpLabel")}:${game.xp}/${game.xpToNext} ${t("atk")}:${effAtk} ${t("def")}:${effDef} ${t("depth")}:${game.depth}`,
+    `${t("lvLabel")}:${game.level} ${t("xpLabel")}:${game.xp}/${game.xpToNext} ${t("atk")}:${effAtk} ${t("def")}:${effDef} ${t("depth")}:${game.depth} $:${game.gold}`,
     sx, row2Y
   );
 
@@ -453,6 +503,22 @@ function renderPanel(ctx: CanvasRenderingContext2D, game: GameState) {
       ctx.fillStyle = si.color;
       ctx.fillText(si.icon, iconX, row2Y);
       iconX += 30;
+    }
+  }
+
+  // Abilities row (row 3)
+  if (game.abilities.length > 0) {
+    const row3Y = PANEL_Y + 46;
+    ctx.font = UI_FONT;
+    ctx.textAlign = "left";
+    const abilityLabels: Record<string, string> = { dash: "1:Dash", shield_bash: "2:Bash", battle_cry: "3:Cry" };
+    let abX = sx;
+    for (const ab of game.abilities) {
+      const cd = game.abilityCooldowns[ab] ?? 0;
+      ctx.fillStyle = cd > 0 ? "#555" : "#66ccff";
+      const label = cd > 0 ? `${abilityLabels[ab]}(${cd})` : abilityLabels[ab];
+      ctx.fillText(label, abX, row3Y);
+      abX += 75;
     }
   }
 
@@ -483,8 +549,10 @@ function renderMinimap(ctx: CanvasRenderingContext2D, game: GameState) {
 
       let color: string;
       if (cell.tile === Tile.Wall) color = "#333";
-      else if (cell.tile === Tile.StairsDown) color = "#fff";
-      else if (cell.tile === Tile.Water) color = "#246";
+      else if (cell.tile === Tile.StairsDown || cell.tile === Tile.StairsUp) color = "#fff";
+      else if (cell.tile === Tile.Water || cell.tile === Tile.DeepWater) color = "#246";
+      else if (cell.tile === Tile.Lava) color = "#630";
+      else if (cell.tile === Tile.BurningGrass) color = "#630";
       else color = "#1a1a2e";
 
       ctx.fillStyle = color;
@@ -499,7 +567,7 @@ function renderMinimap(ctx: CanvasRenderingContext2D, game: GameState) {
   // Stairs position
   for (let y = 0; y < MAP_H; y++) {
     for (let x = 0; x < MAP_W; x++) {
-      if (game.cells[y][x].revealed && game.cells[y][x].tile === Tile.StairsDown) {
+      if (game.cells[y][x].revealed && (game.cells[y][x].tile === Tile.StairsDown || game.cells[y][x].tile === Tile.StairsUp)) {
         ctx.fillStyle = "#ffffff";
         ctx.fillRect(mmX + x * cellW - 1, mmY + y * cellH - 1, 3, 3);
       }

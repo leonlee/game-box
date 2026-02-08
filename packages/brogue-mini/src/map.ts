@@ -5,11 +5,15 @@ export enum Tile {
   Wall,
   Floor,
   StairsDown,
+  StairsUp,
   Water,
   Grass,
   TrapSpike,
   TrapTeleport,
   TrapAlarm,
+  DeepWater,
+  Lava,
+  BurningGrass,
 }
 
 export interface MapCell {
@@ -47,7 +51,7 @@ function roomsOverlap(a: Room, b: Room): boolean {
   );
 }
 
-export function generateDungeon(depth = 1): DungeonResult {
+export function generateDungeon(depth = 1, ascending = false): DungeonResult {
   const cells: MapCell[][] = [];
   for (let y = 0; y < MAP_H; y++) {
     cells[y] = [];
@@ -92,8 +96,8 @@ export function generateDungeon(depth = 1): DungeonResult {
     }
   }
 
-  // Boss room on depth 5
-  if (depth >= 5 && rooms.length > 1) {
+  // Boss room on depth 5 (mid-boss) and 10 (final boss)
+  if ((depth === 5 || depth >= 10) && rooms.length > 1) {
     rooms[rooms.length - 1].tag = "boss";
   }
 
@@ -110,6 +114,62 @@ export function generateDungeon(depth = 1): DungeonResult {
     } else {
       carveCorrV(cells, ay, by, ax);
       carveCorrH(cells, ax, bx, by);
+    }
+  }
+
+  // Add 1-3 extra corridors between non-adjacent rooms (creates loops)
+  if (rooms.length > 3) {
+    const extraCorridors = rand(1, 3);
+    for (let e = 0; e < extraCorridors; e++) {
+      const a = rand(0, rooms.length - 1);
+      let b = rand(0, rooms.length - 1);
+      if (b === a) b = (a + 2) % rooms.length;
+      if (Math.abs(a - b) <= 1) continue; // already connected by linear chain
+      const ax = Math.floor(rooms[a].x + rooms[a].w / 2);
+      const ay = Math.floor(rooms[a].y + rooms[a].h / 2);
+      const bx = Math.floor(rooms[b].x + rooms[b].w / 2);
+      const by = Math.floor(rooms[b].y + rooms[b].h / 2);
+      if (Math.random() < 0.5) {
+        carveCorrH(cells, ax, bx, ay);
+        carveCorrV(cells, ay, by, bx);
+      } else {
+        carveCorrV(cells, ay, by, ax);
+        carveCorrH(cells, ax, bx, by);
+      }
+    }
+  }
+
+  // Flood-fill reachability validation
+  const spawn = rooms[0];
+  const spawnX = Math.floor(spawn.x + spawn.w / 2);
+  const spawnY = Math.floor(spawn.y + spawn.h / 2);
+  const reachable: boolean[][] = [];
+  for (let y = 0; y < MAP_H; y++) reachable[y] = new Array(MAP_W).fill(false);
+  const floodQ: number[] = [spawnX, spawnY];
+  reachable[spawnY][spawnX] = true;
+  while (floodQ.length > 0) {
+    const fx = floodQ.shift()!;
+    const fy = floodQ.shift()!;
+    for (const [ddx, ddy] of [[-1,0],[1,0],[0,-1],[0,1]]) {
+      const nx = fx + ddx, ny = fy + ddy;
+      if (nx >= 0 && nx < MAP_W && ny >= 0 && ny < MAP_H && !reachable[ny][nx] && cells[ny][nx].tile !== Tile.Wall && cells[ny][nx].tile !== Tile.DeepWater) {
+        reachable[ny][nx] = true;
+        floodQ.push(nx, ny);
+      }
+    }
+  }
+  // If any room center unreachable, add emergency corridor from spawn
+  for (let ri = 1; ri < rooms.length; ri++) {
+    const rcx = Math.floor(rooms[ri].x + rooms[ri].w / 2);
+    const rcy = Math.floor(rooms[ri].y + rooms[ri].h / 2);
+    if (!reachable[rcy][rcx]) {
+      if (Math.random() < 0.5) {
+        carveCorrH(cells, spawnX, rcx, spawnY);
+        carveCorrV(cells, spawnY, rcy, rcx);
+      } else {
+        carveCorrV(cells, spawnY, rcy, spawnX);
+        carveCorrH(cells, spawnX, rcx, rcy);
+      }
     }
   }
 
@@ -148,6 +208,43 @@ export function generateDungeon(depth = 1): DungeonResult {
     }
   }
 
+  // Scatter deep water pools (depth 4+)
+  if (depth >= 4) {
+    for (let i = 0; i < rand(1, 2); i++) {
+      const cx = rand(3, MAP_W - 4);
+      const cy = rand(3, MAP_H - 4);
+      const r = rand(1, 2);
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          const nx = cx + dx, ny = cy + dy;
+          if (ny > 0 && ny < MAP_H - 1 && nx > 0 && nx < MAP_W - 1) {
+            if (cells[ny][nx].tile === Tile.Floor && Math.random() < 0.4) {
+              cells[ny][nx].tile = Tile.DeepWater;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Scatter lava pools (depth 8+)
+  if (depth >= 8) {
+    for (let i = 0; i < rand(1, 2); i++) {
+      const cx = rand(3, MAP_W - 4);
+      const cy = rand(3, MAP_H - 4);
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const nx = cx + dx, ny = cy + dy;
+          if (ny > 0 && ny < MAP_H - 1 && nx > 0 && nx < MAP_W - 1) {
+            if (cells[ny][nx].tile === Tile.Floor && Math.random() < 0.5) {
+              cells[ny][nx].tile = Tile.Lava;
+            }
+          }
+        }
+      }
+    }
+  }
+
   // Place traps in corridors and rooms (not first room)
   const trapTypes = [Tile.TrapSpike, Tile.TrapTeleport, Tile.TrapAlarm];
   const numTraps = rand(2, 3 + depth);
@@ -162,11 +259,24 @@ export function generateDungeon(depth = 1): DungeonResult {
     }
   }
 
-  // Place stairs in last room
-  const last = rooms[rooms.length - 1];
-  const sx = Math.floor(last.x + last.w / 2);
-  const sy = Math.floor(last.y + last.h / 2);
-  cells[sy][sx].tile = Tile.StairsDown;
+  // Place stairs in last room (down stairs, unless at depth 10 non-ascending)
+  if (depth < 10 || ascending) {
+    const last = rooms[rooms.length - 1];
+    const sx = Math.floor(last.x + last.w / 2);
+    const sy = Math.floor(last.y + last.h / 2);
+    cells[sy][sx].tile = Tile.StairsDown;
+  }
+
+  // Place up stairs in first room when ascending
+  if (ascending) {
+    const first = rooms[0];
+    // Place stairs up offset from room center so player doesn't spawn on them
+    const ux = first.x + 1;
+    const uy = first.y + 1;
+    if (cells[uy][ux].tile === Tile.Floor) {
+      cells[uy][ux].tile = Tile.StairsUp;
+    }
+  }
 
   return { cells, rooms };
 }

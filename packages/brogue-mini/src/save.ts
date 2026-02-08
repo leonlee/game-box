@@ -4,8 +4,10 @@ import { StatusEffect } from "./effects";
 
 const SAVE_KEY = "brogue-mini-save";
 const LEADERBOARD_KEY = "brogue-mini-leaderboard";
+const SAVE_VERSION = 2;
 
 interface SaveData {
+  version: number;
   cells: MapCell[][];
   player: Creature;
   pet: Creature;
@@ -23,6 +25,16 @@ interface SaveData {
   equippedWeapon: Item | null;
   equippedArmor: Item | null;
   statusEffects: StatusEffect[];
+  kills: number;
+  ascending: boolean;
+  identifiedTypes: string[];
+  gold: number;
+  abilities: string[];
+  abilityCooldowns: Record<string, number>;
+  potionLabels: Record<string, string>;
+  scrollLabels: Record<string, string>;
+  deadSkeletons: { x: number; y: number; turnsLeft: number; hp: number; maxHp: number; atk: number; def: number; xp: number }[];
+  burningTiles: [string, number][];
 }
 
 export interface LeaderboardEntry {
@@ -36,6 +48,7 @@ export interface LeaderboardEntry {
 
 export function saveGame(game: GameState): void {
   const data: SaveData = {
+    version: SAVE_VERSION,
     cells: game.cells,
     player: game.player,
     pet: game.pet,
@@ -53,6 +66,16 @@ export function saveGame(game: GameState): void {
     equippedWeapon: game.inventory.equipped.weapon,
     equippedArmor: game.inventory.equipped.armor,
     statusEffects: game.statusMgr.effects,
+    kills: game.kills,
+    ascending: game.ascending,
+    identifiedTypes: [...game.identifiedTypes],
+    gold: game.gold,
+    abilities: [...game.abilities],
+    abilityCooldowns: { ...game.abilityCooldowns },
+    potionLabels: { ...game.potionLabels },
+    scrollLabels: { ...game.scrollLabels },
+    deadSkeletons: game.deadSkeletons,
+    burningTiles: [...game.burningTiles.entries()],
   };
   localStorage.setItem(SAVE_KEY, JSON.stringify(data));
 }
@@ -67,6 +90,13 @@ export function loadGame(game: GameState): boolean {
 
   try {
     const data: SaveData = JSON.parse(raw);
+
+    // Discard incompatible saves (roguelike convention)
+    if (!data.version || data.version < SAVE_VERSION) {
+      deleteSave();
+      return false;
+    }
+
     game.cells = data.cells;
     game.player = data.player;
     game.pet = data.pet;
@@ -84,6 +114,16 @@ export function loadGame(game: GameState): boolean {
     game.inventory.equipped.weapon = data.equippedWeapon;
     game.inventory.equipped.armor = data.equippedArmor;
     game.statusMgr.effects = data.statusEffects;
+    game.kills = data.kills;
+    game.ascending = data.ascending;
+    game.identifiedTypes = new Set(data.identifiedTypes);
+    game.gold = data.gold;
+    game.abilities = data.abilities as typeof game.abilities;
+    game.abilityCooldowns = data.abilityCooldowns;
+    game.potionLabels = data.potionLabels;
+    game.scrollLabels = data.scrollLabels;
+    game.deadSkeletons = data.deadSkeletons;
+    game.burningTiles = new Map(data.burningTiles);
     game.gameOver = false;
     game.won = false;
 

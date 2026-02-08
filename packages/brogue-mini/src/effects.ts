@@ -1,4 +1,4 @@
-export type StatusType = "poison" | "bleed" | "slow" | "blind";
+export type StatusType = "poison" | "bleed" | "slow" | "blind" | "burn" | "stun" | "fear";
 
 export interface StatusEffect {
   type: StatusType;
@@ -28,7 +28,7 @@ export class StatusManager {
   tick(): number {
     let damage = 0;
     for (const e of this.effects) {
-      if (e.type === "poison" || e.type === "bleed") {
+      if (e.type === "poison" || e.type === "bleed" || e.type === "burn") {
         damage += e.value;
       }
       e.duration--;
@@ -50,6 +50,9 @@ export class StatusManager {
         case "bleed": icons.push({ icon: "BLD", color: "#e74c3c" }); break;
         case "slow": icons.push({ icon: "SLW", color: "#3498db" }); break;
         case "blind": icons.push({ icon: "BLN", color: "#95a5a6" }); break;
+        case "burn": icons.push({ icon: "BRN", color: "#ff6600" }); break;
+        case "stun": icons.push({ icon: "STN", color: "#ffff00" }); break;
+        case "fear": icons.push({ icon: "FER", color: "#9b59b6" }); break;
       }
     }
     return icons;
