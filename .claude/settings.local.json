@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install)",
+      "Bash(npm run build:*)",
+      "Bash(npx tsc:*)",
+      "Bash(open:*)",
+      "Bash(screencapture:*)",
+      "Bash(wc:*)",
+      "Bash(git mv:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)"
+    ]
+  }
+}
