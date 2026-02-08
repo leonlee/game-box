@@ -1,0 +1,430 @@
+import { LessonDef } from '../types';
+
+// Lesson 19: Vたことがあります (Have experienced), Vたり〜たりします (Do things like),
+// Adj/Nになりました (Has become)
+export const lesson19: LessonDef = {
+  id: 19,
+  title: '第19课 曾经…/又做…又做…/变得…',
+  titleJa: 'Vたことがあります / Vたり〜たりします / ～になりました',
+  difficulty: 'discrimination',
+  grammarPoints: [
+    {
+      pattern: 'Vた形 + ことがあります',
+      meaning: '表示过去的经历："曾经做过…"',
+      examples: [
+        { ja: '日本に行ったことがあります。', zh: '我去过日本。' },
+        { ja: '富士山に登ったことがありません。', zh: '我没有登过富士山。' },
+      ],
+    },
+    {
+      pattern: 'Vたり、Vたりします',
+      meaning: '列举几个动作中的代表："又做…又做…之类的"',
+      examples: [
+        { ja: '休みの日は映画を見たり、買い物をしたりします。', zh: '休息日看看电影，逛逛街什么的。' },
+        { ja: '日曜日は掃除したり、洗濯したりします。', zh: '星期天打扫打扫卫生，洗洗衣服什么的。' },
+      ],
+    },
+    {
+      pattern: 'い形 → ～くなりました / な形 → ～になりました / N → Nになりました',
+      meaning: '表示变化："变得…了"',
+      examples: [
+        { ja: '日本語が上手になりました。', zh: '日语变好了。' },
+        { ja: '寒くなりました。', zh: '变冷了。' },
+      ],
+    },
+  ],
+  vocab: [
+    { ja: '登る', reading: 'のぼる', zh: '登/爬' },
+    { ja: '経験', reading: 'けいけん', zh: '经验/经历' },
+    { ja: '馬', reading: 'うま', zh: '马' },
+    { ja: '乗馬', reading: 'じょうば', zh: '骑马' },
+    { ja: '掃除する', reading: 'そうじする', zh: '打扫' },
+    { ja: '洗濯する', reading: 'せんたくする', zh: '洗衣服' },
+    { ja: '散歩する', reading: 'さんぽする', zh: '散步' },
+    { ja: '暖かい', reading: 'あたたかい', zh: '温暖的' },
+    { ja: '涼しい', reading: 'すずしい', zh: '凉爽的' },
+    { ja: '上手', reading: 'じょうず', zh: '擅长的' },
+    { ja: '有名', reading: 'ゆうめい', zh: '有名的' },
+    { ja: '便利', reading: 'べんり', zh: '方便的' },
+    { ja: '買い物', reading: 'かいもの', zh: '购物' },
+    { ja: '納豆', reading: 'なっとう', zh: '纳豆' },
+    { ja: '着物', reading: 'きもの', zh: '和服' },
+  ],
+  vocabQuestions: [
+    { type: 'vocab', prompt: '登る', promptAudio: 'のぼる', choices: ['登/爬', '下降', '跳', '滑'], correctIndex: 0 },
+    { type: 'vocab', prompt: '経験', promptAudio: 'けいけん', choices: ['知识', '经验', '练习', '实力'], correctIndex: 1 },
+    { type: 'vocab', prompt: '馬', promptAudio: 'うま', choices: ['牛', '羊', '马', '猪'], correctIndex: 2 },
+    { type: 'vocab', prompt: '乗馬', promptAudio: 'じょうば', choices: ['赛车', '滑雪', '冲浪', '骑马'], correctIndex: 3 },
+    { type: 'vocab', prompt: '掃除する', promptAudio: 'そうじする', choices: ['打扫', '整理', '搬运', '丢弃'], correctIndex: 0 },
+    { type: 'vocab', prompt: '洗濯する', promptAudio: 'せんたくする', choices: ['做饭', '洗衣服', '打扫', '洗澡'], correctIndex: 1 },
+    { type: 'vocab', prompt: '散歩する', promptAudio: 'さんぽする', choices: ['跑步', '游泳', '散步', '骑车'], correctIndex: 2 },
+    { type: 'vocab', prompt: '暖かい', promptAudio: 'あたたかい', choices: ['寒冷的', '炎热的', '凉爽的', '温暖的'], correctIndex: 3 },
+    { type: 'vocab', prompt: '涼しい', promptAudio: 'すずしい', choices: ['凉爽的', '温暖的', '寒冷的', '炎热的'], correctIndex: 0 },
+    { type: 'vocab', prompt: '上手', promptAudio: 'じょうず', choices: ['下手', '擅长的', '普通的', '努力的'], correctIndex: 1 },
+    { type: 'vocab', prompt: '有名', promptAudio: 'ゆうめい', choices: ['无名的', '普通的', '有名的', '特别的'], correctIndex: 2 },
+    { type: 'vocab', prompt: '便利', promptAudio: 'べんり', choices: ['危险的', '安全的', '不便的', '方便的'], correctIndex: 3 },
+    { type: 'vocab', prompt: '買い物', promptAudio: 'かいもの', choices: ['购物', '工作', '学习', '运动'], correctIndex: 0 },
+    { type: 'vocab', prompt: '納豆', promptAudio: 'なっとう', choices: ['豆腐', '纳豆', '味噌', '酱油'], correctIndex: 1 },
+    { type: 'vocab', prompt: '着物', promptAudio: 'きもの', choices: ['西装', '裙子', '和服', '外套'], correctIndex: 2 },
+    { type: 'vocab', prompt: '富士山', promptAudio: 'ふじさん', choices: ['樱花', '温泉', '神社', '富士山'], correctIndex: 3 },
+  ],
+  assemblyQuestions: [
+    {
+      type: 'assembly',
+      meaning: '我去过日本。',
+      blocks: ['ことがあります', '行った', '日本に'],
+      correctOrder: ['日本に', '行った', 'ことがあります'],
+    },
+    {
+      type: 'assembly',
+      meaning: '我没有登过富士山。',
+      blocks: ['富士山に', 'ことがありません', '登った'],
+      correctOrder: ['富士山に', '登った', 'ことがありません'],
+    },
+    {
+      type: 'assembly',
+      meaning: '休息日看看电影，逛逛街什么的。',
+      blocks: ['買い物をしたり', '見たり', '休みの日は', '映画を', 'します'],
+      correctOrder: ['休みの日は', '映画を', '見たり', '買い物をしたり', 'します'],
+    },
+    {
+      type: 'assembly',
+      meaning: '日语变好了。',
+      blocks: ['なりました', '上手に', '日本語が'],
+      correctOrder: ['日本語が', '上手に', 'なりました'],
+    },
+    {
+      type: 'assembly',
+      meaning: '变冷了。',
+      blocks: ['なりました', '寒く'],
+      correctOrder: ['寒く', 'なりました'],
+    },
+    {
+      type: 'assembly',
+      meaning: '你吃过纳豆吗？',
+      blocks: ['食べた', 'ことがありますか', '納豆を'],
+      correctOrder: ['納豆を', '食べた', 'ことがありますか'],
+    },
+    {
+      type: 'assembly',
+      meaning: '星期天打扫打扫卫生，洗洗衣服什么的。',
+      blocks: ['洗濯したり', '日曜日は', 'します', '掃除したり'],
+      correctOrder: ['日曜日は', '掃除したり', '洗濯したり', 'します'],
+    },
+    {
+      type: 'assembly',
+      meaning: '这个城镇变方便了。',
+      blocks: ['便利に', 'この町は', 'なりました'],
+      correctOrder: ['この町は', '便利に', 'なりました'],
+    },
+    {
+      type: 'assembly',
+      meaning: '我穿过和服。',
+      blocks: ['ことがあります', '着物を', '着た'],
+      correctOrder: ['着物を', '着た', 'ことがあります'],
+    },
+    {
+      type: 'assembly',
+      meaning: '天气变暖和了。',
+      blocks: ['暖かく', '天気が', 'なりました'],
+      correctOrder: ['天気が', '暖かく', 'なりました'],
+    },
+    {
+      type: 'assembly',
+      meaning: '周末又散步又看书什么的。',
+      blocks: ['読んだり', '本を', '散歩したり', '週末は', 'します'],
+      correctOrder: ['週末は', '散歩したり', '本を', '読んだり', 'します'],
+    },
+  ],
+  grammarCheckQuestions: [
+    {
+      type: 'grammar_check',
+      prompt: '哪句正确表达了"我去过北海道"？',
+      sentences: [
+        '北海道に行ったことがあります。',
+        '北海道に行くことがあります。',
+        '北海道に行ってことがあります。',
+      ],
+      correctIndex: 0,
+      explanation: '「Vた形＋ことがあります」表示经历。「行く」的た形是「行った」。',
+    },
+    {
+      type: 'grammar_check',
+      prompt: '哪句正确表达了"变得擅长日语了"？',
+      sentences: [
+        '日本語が上手くなりました。',
+        '日本語が上手になりました。',
+        '日本語が上手でなりました。',
+      ],
+      correctIndex: 1,
+      explanation: '「上手」是な形容词，变化用「上手になりました」。な形容词用「〜になる」。',
+    },
+    {
+      type: 'grammar_check',
+      prompt: '哪句正确使用了"〜たり〜たりします"？',
+      sentences: [
+        '休みの日は映画を見たり、買い物をしたりします。',
+        '休みの日は映画を見たり、買い物をするします。',
+        '休みの日は映画を見る、買い物をしたりします。',
+      ],
+      correctIndex: 0,
+      explanation: '「〜たり〜たりします」要求每个动词都用た形加「り」，最后接「します」。',
+    },
+    {
+      type: 'grammar_check',
+      prompt: '以下哪个句子的变化表达有错误？',
+      sentences: [
+        '天気が寒くなりました。',
+        '町が静かくなりました。',
+        '子どもが大きくなりました。',
+      ],
+      correctIndex: 1,
+      explanation: '「静か」是な形容词，应该用「静かになりました」而不是「静かくなりました」。「〜くなる」只用于い形容词。',
+    },
+    {
+      type: 'grammar_check',
+      prompt: '哪句正确表达了"我没有骑过马"？',
+      sentences: [
+        '馬に乗ったことがありません。',
+        '馬に乗ることがありません。',
+        '馬に乗らないことがあります。',
+      ],
+      correctIndex: 0,
+      explanation: '否定经历用「Vた形＋ことがありません」。「乗る」的た形是「乗った」。',
+    },
+    {
+      type: 'grammar_check',
+      prompt: '哪句正确表达了"变成20岁了"？',
+      sentences: [
+        '20歳がなりました。',
+        '20歳になりました。',
+        '20歳をなりました。',
+      ],
+      correctIndex: 1,
+      explanation: '名词的变化用「Nになりました」，助词用「に」。',
+    },
+    {
+      type: 'grammar_check',
+      prompt: '"周末看书和听音乐之类的"正确的说法是？',
+      sentences: [
+        '週末は本を読んだり、音楽を聞いたりします。',
+        '週末は本を読んだり、音楽を聞くたりします。',
+        '週末は本を読むたり、音楽を聞いたりします。',
+      ],
+      correctIndex: 0,
+      explanation: '「〜たり」前面接动词た形。「読む」→「読んだり」、「聞く」→「聞いたり」。',
+    },
+    {
+      type: 'grammar_check',
+      prompt: '哪句正确表达了"春天到了，变暖和了"？',
+      sentences: [
+        '春になって、暖かくなりました。',
+        '春になって、暖かになりました。',
+        '春になって、暖かいになりました。',
+      ],
+      correctIndex: 0,
+      explanation: '「暖かい」是い形容词，变化形式是「暖かくなりました」。去掉「い」加「く」再加「なる」。',
+    },
+  ],
+  dialogueQuestions: [
+    {
+      type: 'dialogue',
+      context: '朋友之间聊去过的地方。',
+      lines: [
+        { speaker: '朋友A', text: '沖縄に行ったことがありますか。' },
+        { speaker: '朋友B', text: '___', isBlank: true },
+      ],
+      choices: [
+        'はい、2回行ったことがあります。',
+        'はい、2回行くことがあります。',
+        'はい、2回行ってことがあります。',
+      ],
+      correctIndex: 0,
+    },
+    {
+      type: 'dialogue',
+      context: '聊休息日通常做什么。',
+      lines: [
+        { speaker: '同事A', text: '休みの日は何をしますか。' },
+        { speaker: '同事B', text: '___', isBlank: true },
+      ],
+      choices: [
+        '映画を見たり、散歩したりします。',
+        '映画を見るたり、散歩するたりします。',
+        '映画を見て、散歩してします。',
+      ],
+      correctIndex: 0,
+    },
+    {
+      type: 'dialogue',
+      context: '老师夸奖学生的进步。',
+      lines: [
+        { speaker: '先生', text: '最近、日本語が___。', isBlank: true },
+        { speaker: '学生', text: 'ありがとうございます。毎日練習しています。' },
+      ],
+      choices: [
+        '上手くなりました',
+        '上手になりました',
+        '上手でなりました',
+      ],
+      correctIndex: 1,
+    },
+    {
+      type: 'dialogue',
+      context: '在日本料理店里聊日本食物。',
+      lines: [
+        { speaker: '友人', text: '納豆を食べたことがありますか。' },
+        { speaker: '自分', text: '___', isBlank: true },
+      ],
+      choices: [
+        'いいえ、食べたことがありません。',
+        'いいえ、食べることがありません。',
+        'いいえ、食べないことがあります。',
+      ],
+      correctIndex: 0,
+    },
+    {
+      type: 'dialogue',
+      context: '谈论季节的变化。',
+      lines: [
+        { speaker: 'A', text: '最近、どうですか。' },
+        { speaker: 'B', text: '___', isBlank: true },
+      ],
+      choices: [
+        'だんだん涼しくなりました。',
+        'だんだん涼しいになりました。',
+        'だんだん涼しでなりました。',
+      ],
+      correctIndex: 0,
+    },
+    {
+      type: 'dialogue',
+      context: '两个人聊各自的周末计划。',
+      lines: [
+        { speaker: '友人A', text: '日曜日は何をする予定ですか。' },
+        { speaker: '友人B', text: '___', isBlank: true },
+      ],
+      choices: [
+        '掃除したり、洗濯したりします。',
+        '掃除するたり、洗濯するたりします。',
+        '掃除して、洗濯してします。',
+      ],
+      correctIndex: 0,
+    },
+    {
+      type: 'dialogue',
+      context: '聊以前的经历。',
+      lines: [
+        { speaker: 'A', text: '着物を着たことがありますか。' },
+        { speaker: 'B', text: '___', isBlank: true },
+      ],
+      choices: [
+        'はい、日本にいたとき、着たことがあります。',
+        'はい、日本にいたとき、着ることがあります。',
+        'はい、日本にいたとき、着てことがあります。',
+      ],
+      correctIndex: 0,
+    },
+  ],
+  bossQuestions: [
+    {
+      type: 'boss',
+      subType: 'vocab',
+      question: { type: 'vocab', prompt: '経験', promptAudio: 'けいけん', choices: ['练习', '知识', '经验', '挑战'], correctIndex: 2 },
+    },
+    {
+      type: 'boss',
+      subType: 'assembly',
+      question: {
+        type: 'assembly',
+        meaning: '我去过日本，吃过寿司。',
+        blocks: ['食べた', '行った', 'ことがあります', '日本に', 'お寿司を', 'ことがあります'],
+        correctOrder: ['日本に', '行った', 'ことがあります', 'お寿司を', '食べた', 'ことがあります'],
+        hint: '两个经历句的组合',
+      },
+    },
+    {
+      type: 'boss',
+      subType: 'grammar_check',
+      question: {
+        type: 'grammar_check',
+        prompt: '以下哪个句子同时正确使用了经历和变化的语法？',
+        sentences: [
+          '日本に行ったことがあります。日本語が上手になりました。',
+          '日本に行くことがあります。日本語が上手くなりました。',
+          '日本に行ったことがあります。日本語が上手でなりました。',
+        ],
+        correctIndex: 0,
+        explanation: '经历用「Vた形＋ことがあります」，な形容词的变化用「〜になりました」。「上手」是な形容词。',
+      },
+    },
+    {
+      type: 'boss',
+      subType: 'dialogue',
+      question: {
+        type: 'dialogue',
+        context: '在日本留学的外国学生接受采访，谈论在日本的生活。',
+        lines: [
+          { speaker: '记者', text: '日本に来てから、何が変わりましたか。' },
+          { speaker: '留学生', text: '___', isBlank: true },
+        ],
+        choices: [
+          '日本語が上手になりました。休みの日は友達と遊んだり、旅行したりします。',
+          '日本語が上手くなりました。休みの日は友達と遊ぶたり、旅行するたりします。',
+          '日本語が上手でなりました。休みの日は友達と遊んだり、旅行したりします。',
+        ],
+        correctIndex: 0,
+      },
+    },
+    {
+      type: 'boss',
+      subType: 'reading',
+      question: {
+        type: 'reading',
+        passage: '私は去年日本に行ったことがあります。東京で寿司を食べたり、浅草を見たりしました。日本はとてもきれいで、人も親切でした。日本語は少し上手になりました。来年もう一度行きたいです。',
+        passageZh: '我去年去过日本。在东京吃了寿司，逛了浅草等。日本非常漂亮，人也很亲切。日语也变好了一点。明年还想再去一次。',
+        question: 'この人は日本で何をしましたか。',
+        choices: [
+          '料理を作ったり、掃除をしたりしました。',
+          '寿司を食べたり、浅草を見たりしました。',
+          '日本語を勉強したり、仕事をしたりしました。',
+          '買い物をしたり、映画を見たりしました。',
+        ],
+        correctIndex: 1,
+      },
+    },
+    {
+      type: 'boss',
+      subType: 'reading',
+      question: {
+        type: 'reading',
+        passage: '田中さんは子どものとき、馬に乗ったことがあります。今は東京に住んでいます。東京はとても便利になりました。休みの日は散歩したり、本を読んだりします。最近、料理が上手になりました。',
+        passageZh: '田中小时候骑过马。现在住在东京。东京变得非常方便了。休息日散散步、看看书什么的。最近做菜变得擅长了。',
+        question: '田中さんについて正しいのはどれですか。',
+        choices: [
+          '今も馬に乗っています。',
+          '料理が上手になりました。',
+          '東京は不便になりました。',
+          '休みの日は何もしません。',
+        ],
+        correctIndex: 1,
+      },
+    },
+    {
+      type: 'boss',
+      subType: 'assembly',
+      question: {
+        type: 'assembly',
+        meaning: '渐渐变凉了。周末打扫打扫卫生，洗洗衣服什么的。',
+        blocks: ['掃除したり', 'だんだん', 'なりました', '週末は', '涼しく', 'します', '洗濯したり'],
+        correctOrder: ['だんだん', '涼しく', 'なりました', '週末は', '掃除したり', '洗濯したり', 'します'],
+        hint: '变化＋列举动作',
+      },
+    },
+    {
+      type: 'boss',
+      subType: 'vocab',
+      question: { type: 'vocab', prompt: '暖かい', promptAudio: 'あたたかい', choices: ['炎热的', '寒冷的', '温暖的', '凉爽的'], correctIndex: 2 },
+    },
+  ],
+};

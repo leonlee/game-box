@@ -1,0 +1,342 @@
+import { LessonDef } from '../types';
+
+// Lesson 22: 連体修飾 (Noun modification) / Relative clauses
+export const lesson22: LessonDef = {
+  id: 22,
+  title: '第22课 修饰名词的句子',
+  titleJa: '連体修飾（名詞修飾）',
+  difficulty: 'discrimination',
+  grammarPoints: [
+    {
+      pattern: 'V普通形＋名詞',
+      meaning: '用动词的普通形修饰名词（相当于定语从句）',
+      examples: [
+        { ja: '私が昨日買った本はおもしろいです。', zh: '我昨天买的书很有趣。' },
+        { ja: '東京に住んでいる友達に会いました。', zh: '见了住在东京的朋友。' },
+        { ja: 'これは母が作ったケーキです。', zh: '这是妈妈做的蛋糕。' },
+      ],
+    },
+    {
+      pattern: 'い形容詞＋名詞 / な形容詞＋な＋名詞',
+      meaning: '形容词修饰名词（基础复习，与动词修饰对比）',
+      examples: [
+        { ja: '大きいかばんが欲しいです。', zh: '想要大的包。' },
+        { ja: '静かな場所で勉強したいです。', zh: '想在安静的地方学习。' },
+      ],
+    },
+    {
+      pattern: '連体修飾の複合表現',
+      meaning: '较长的名词修饰表达（多个修饰成分组合）',
+      examples: [
+        { ja: '去年日本で撮った写真を見せてください。', zh: '请给我看去年在日本拍的照片。' },
+        { ja: '駅の近くにある安いレストランを知っていますか。', zh: '你知道车站附近的便宜的餐厅吗？' },
+      ],
+    },
+  ],
+  vocab: [
+    { ja: '届く', reading: 'とどく', zh: '（东西）到达', example: '手紙が届く' },
+    { ja: '送る', reading: 'おくる', zh: '送；寄', example: '荷物を送る' },
+    { ja: '見つける', reading: 'みつける', zh: '找到', example: 'いい店を見つける' },
+    { ja: '紹介する', reading: 'しょうかいする', zh: '介绍', example: '友達を紹介する' },
+    { ja: '選ぶ', reading: 'えらぶ', zh: '选择', example: 'プレゼントを選ぶ' },
+    { ja: '焼く', reading: 'やく', zh: '烤；烧', example: 'パンを焼く' },
+    { ja: '壊れる', reading: 'こわれる', zh: '坏掉', example: '時計が壊れる' },
+    { ja: '場所', reading: 'ばしょ', zh: '场所；地方', example: '静かな場所' },
+    { ja: '荷物', reading: 'にもつ', zh: '行李；包裹', example: '荷物が届く' },
+    { ja: 'プレゼント', reading: 'ぷれぜんと', zh: '礼物', example: 'プレゼントを買う' },
+    { ja: '約束', reading: 'やくそく', zh: '约定', example: '約束の時間' },
+    { ja: '歌', reading: 'うた', zh: '歌曲', example: '好きな歌' },
+    { ja: '記事', reading: 'きじ', zh: '文章；报道', example: 'ニュースの記事' },
+    { ja: '景色', reading: 'けしき', zh: '景色', example: 'きれいな景色' },
+    { ja: '人気', reading: 'にんき', zh: '人气；受欢迎', example: '人気がある店' },
+  ],
+  vocabQuestions: [
+    { type: 'vocab', prompt: '届く', promptAudio: 'とどく', choices: ['到达', '出发', '迟到', '回来'], correctIndex: 0 },
+    { type: 'vocab', prompt: '送る', promptAudio: 'おくる', choices: ['收', '送', '拿', '还'], correctIndex: 1 },
+    { type: 'vocab', prompt: '見つける', promptAudio: 'みつける', choices: ['丢失', '忘记', '找到', '放弃'], correctIndex: 2 },
+    { type: 'vocab', prompt: '紹介する', promptAudio: 'しょうかいする', choices: ['拒绝', '道歉', '感谢', '介绍'], correctIndex: 3 },
+    { type: 'vocab', prompt: '選ぶ', promptAudio: 'えらぶ', choices: ['选择', '放弃', '决定', '交换'], correctIndex: 0 },
+    { type: 'vocab', prompt: '焼く', promptAudio: 'やく', choices: ['煮', '烤', '炒', '蒸'], correctIndex: 1 },
+    { type: 'vocab', prompt: '壊れる', promptAudio: 'こわれる', choices: ['修好', '做好', '坏掉', '变新'], correctIndex: 2 },
+    { type: 'vocab', prompt: '場所', promptAudio: 'ばしょ', choices: ['时间', '天气', '理由', '场所'], correctIndex: 3 },
+    { type: 'vocab', prompt: '荷物', promptAudio: 'にもつ', choices: ['行李', '邮件', '信件', '快递'], correctIndex: 0 },
+    { type: 'vocab', prompt: 'プレゼント', promptAudio: 'ぷれぜんと', choices: ['价格', '礼物', '感谢', '邀请'], correctIndex: 1 },
+    { type: 'vocab', prompt: '約束', promptAudio: 'やくそく', choices: ['命令', '规则', '约定', '计划'], correctIndex: 2 },
+    { type: 'vocab', prompt: '歌', promptAudio: 'うた', choices: ['舞蹈', '绘画', '电影', '歌曲'], correctIndex: 3 },
+    { type: 'vocab', prompt: '記事', promptAudio: 'きじ', choices: ['文章', '日记', '小说', '漫画'], correctIndex: 0 },
+    { type: 'vocab', prompt: '景色', promptAudio: 'けしき', choices: ['天气', '景色', '温度', '季节'], correctIndex: 1 },
+    { type: 'vocab', prompt: '人気', promptAudio: 'にんき', choices: ['讨厌', '无聊', '人气', '勇气'], correctIndex: 2 },
+    { type: 'vocab', prompt: '届く', promptAudio: 'とどく', choices: ['寄出', '送达', '搬运', '到达'], correctIndex: 3 },
+  ],
+  assemblyQuestions: [
+    {
+      type: 'assembly',
+      meaning: '我昨天买的书很有趣。',
+      blocks: ['おもしろいです', '本は', '昨日', '買った', '私が'],
+      correctOrder: ['私が', '昨日', '買った', '本は', 'おもしろいです'],
+    },
+    {
+      type: 'assembly',
+      meaning: '这是妈妈做的蛋糕。',
+      blocks: ['ケーキです', 'これは', '作った', '母が'],
+      correctOrder: ['これは', '母が', '作った', 'ケーキです'],
+    },
+    {
+      type: 'assembly',
+      meaning: '见了住在东京的朋友。',
+      blocks: ['会いました', '友達に', '東京に', '住んでいる'],
+      correctOrder: ['東京に', '住んでいる', '友達に', '会いました'],
+    },
+    {
+      type: 'assembly',
+      meaning: '请给我看去年在日本拍的照片。',
+      blocks: ['写真を', '去年', '見せてください', '日本で', '撮った'],
+      correctOrder: ['去年', '日本で', '撮った', '写真を', '見せてください'],
+    },
+    {
+      type: 'assembly',
+      meaning: '你知道车站附近便宜的餐厅吗？',
+      blocks: ['レストランを', '安い', '知っていますか', '駅の近くにある'],
+      correctOrder: ['駅の近くにある', '安い', 'レストランを', '知っていますか'],
+    },
+    {
+      type: 'assembly',
+      meaning: '想在安静的地方学习。',
+      blocks: ['勉強したいです', '静かな', '場所で'],
+      correctOrder: ['静かな', '場所で', '勉強したいです'],
+    },
+    {
+      type: 'assembly',
+      meaning: '那是朋友送给我的礼物。',
+      blocks: ['プレゼントです', 'あれは', 'くれた', '友達が'],
+      correctOrder: ['あれは', '友達が', 'くれた', 'プレゼントです'],
+    },
+    {
+      type: 'assembly',
+      meaning: '我想去人气高的餐厅。',
+      blocks: ['レストランに', '人気がある', '行きたいです'],
+      correctOrder: ['人気がある', 'レストランに', '行きたいです'],
+    },
+    {
+      type: 'assembly',
+      meaning: '坏掉的手表已经修好了。',
+      blocks: ['時計は', 'もう', '壊れた', '直りました'],
+      correctOrder: ['壊れた', '時計は', 'もう', '直りました'],
+    },
+    {
+      type: 'assembly',
+      meaning: '找到了昨天丢失的钱包。',
+      blocks: ['財布を', '見つけました', 'なくした', '昨日'],
+      correctOrder: ['昨日', 'なくした', '財布を', '見つけました'],
+    },
+    {
+      type: 'assembly',
+      meaning: '这是我在日本读过的最有趣的书。',
+      blocks: ['いちばん', '本です', 'おもしろい', '日本で', '読んだ'],
+      correctOrder: ['日本で', '読んだ', 'いちばん', 'おもしろい', '本です'],
+      hint: '修饰成分放在名词前面',
+    },
+  ],
+  grammarCheckQuestions: [
+    {
+      type: 'grammar_check',
+      prompt: '哪句正确表达了"我昨天买的书"？',
+      sentences: [
+        '私が昨日買った本',
+        '私が昨日買う本',
+        '私が昨日買いました本',
+      ],
+      correctIndex: 0,
+      explanation: '修饰名词时，动词用普通形。"昨天买的"是过去，所以用过去普通形「買った」。',
+    },
+    {
+      type: 'grammar_check',
+      prompt: '哪句正确表达了"住在大阪的朋友"？',
+      sentences: [
+        '大阪に住みます友達',
+        '大阪に住んでいる友達',
+        '大阪に住むている友達',
+      ],
+      correctIndex: 1,
+      explanation: '修饰名词用普通形。表示现在状态用「住んでいる」修饰「友達」。',
+    },
+    {
+      type: 'grammar_check',
+      prompt: '以下哪个名词修饰的表达有语法错误？',
+      sentences: [
+        '母が作ったケーキ',
+        'きれいの景色',
+        '駅の近くにある店',
+      ],
+      correctIndex: 1,
+      explanation: 'な形容词修饰名词时用「きれいな景色」，不用「きれいの」。',
+    },
+    {
+      type: 'grammar_check',
+      prompt: '哪句正确表达了"这是朋友介绍给我的店"？',
+      sentences: [
+        'これは友達が紹介してくれた店です。',
+        'これは友達が紹介しました店です。',
+        'これは友達が紹介するくれた店です。',
+      ],
+      correctIndex: 0,
+      explanation: '修饰名词时用普通形。「紹介してくれた」是「紹介してくれました」的普通形。',
+    },
+    {
+      type: 'grammar_check',
+      prompt: '"弟弟烤的面包很好吃"哪句正确？',
+      sentences: [
+        '弟が焼いたパンはおいしいです。',
+        '弟が焼くたパンはおいしいです。',
+        '弟が焼きましたパンはおいしいです。',
+      ],
+      correctIndex: 0,
+      explanation: '「焼く」的た形（过去普通形）是「焼いた」。修饰名词时不能用丁宁形「焼きました」。',
+    },
+    {
+      type: 'grammar_check',
+      prompt: '哪句正确表达了"正在唱歌的人是谁？"？',
+      sentences: [
+        '歌を歌っている人はだれですか。',
+        '歌を歌いますの人はだれですか。',
+        '歌を歌うている人はだれですか。',
+      ],
+      correctIndex: 0,
+      explanation: '表示正在进行的动作修饰名词用「Vている＋名詞」。「歌っている人」＝"正在唱歌的人"。',
+    },
+    {
+      type: 'grammar_check',
+      prompt: '哪句正确使用了名词修饰？',
+      sentences: [
+        '先生が書いた記事を読みました。',
+        '先生が書くの記事を読みました。',
+        '先生が書いたの記事を読みました。',
+      ],
+      correctIndex: 0,
+      explanation: '动词普通形直接修饰名词，中间不加「の」。「書いた記事」＝"写的文章"。',
+    },
+    {
+      type: 'grammar_check',
+      prompt: '"这是从日本寄来的包裹"哪句正确？',
+      sentences: [
+        'これは日本から届いた荷物です。',
+        'これは日本から届くた荷物です。',
+        'これは日本から届きました荷物です。',
+      ],
+      correctIndex: 0,
+      explanation: '「届く」的た形是「届いた」（く→いた变化）。修饰名词不能用丁宁形。',
+    },
+    {
+      type: 'grammar_check',
+      prompt: '哪句正确表达了"有约定的日子"？',
+      sentences: [
+        '約束がありますの日',
+        '約束がある日',
+        '約束があった日',
+      ],
+      correctIndex: 1,
+      explanation: '表示"有约定的（将来的）日子"用现在普通形「ある」修饰「日」。不加「の」。',
+    },
+  ],
+  dialogueQuestions: [
+    {
+      type: 'dialogue',
+      context: '朋友来家里做客，看到书架上的书。',
+      lines: [
+        { speaker: '朋友', text: 'この本、おもしろそうですね。' },
+        { speaker: '你', text: 'ああ、それは___。', isBlank: true },
+      ],
+      choices: [
+        '去年日本で買いました本です。',
+        '去年日本で買った本です。',
+        '去年日本で買うの本です。',
+      ],
+      correctIndex: 1,
+    },
+    {
+      type: 'dialogue',
+      context: '同事在看照片。',
+      lines: [
+        { speaker: '同事', text: 'これはだれですか。' },
+        { speaker: '你', text: '___', isBlank: true },
+      ],
+      choices: [
+        '大学で一緒に勉強した友達です。',
+        '大学で一緒に勉強しました友達です。',
+        '大学で一緒に勉強するの友達です。',
+      ],
+      correctIndex: 0,
+    },
+    {
+      type: 'dialogue',
+      context: '在讨论去哪里吃饭。',
+      lines: [
+        { speaker: 'A', text: 'どこで食べましょうか。' },
+        { speaker: 'B', text: '___', isBlank: true },
+        { speaker: 'A', text: 'いいですね。行きましょう。' },
+      ],
+      choices: [
+        '先週見つけたおいしい店に行きませんか。',
+        '先週見つけましたおいしい店に行きませんか。',
+        '先週見つけるおいしい店に行きませんか。',
+      ],
+      correctIndex: 0,
+    },
+    {
+      type: 'dialogue',
+      context: '朋友介绍一首歌。',
+      lines: [
+        { speaker: 'A', text: 'いい歌を知ってる？' },
+        { speaker: 'B', text: 'うん。___', isBlank: true },
+      ],
+      choices: [
+        '最近よく聞いている歌があるよ。',
+        '最近よく聞きます歌があるよ。',
+        '最近よく聞くの歌があるよ。',
+      ],
+      correctIndex: 0,
+    },
+    {
+      type: 'dialogue',
+      context: '打开了一个包裹。',
+      lines: [
+        { speaker: 'A', text: 'それは何ですか。' },
+        { speaker: 'B', text: '___', isBlank: true },
+      ],
+      choices: [
+        '母が送りました荷物です。',
+        '母が送ったの荷物です。',
+        '母が送ってくれた荷物です。',
+      ],
+      correctIndex: 2,
+    },
+    {
+      type: 'dialogue',
+      context: '旅行回来后和朋友聊天。',
+      lines: [
+        { speaker: 'A', text: '旅行はどうでしたか。' },
+        { speaker: 'B', text: 'すごくよかったです。___', isBlank: true },
+      ],
+      choices: [
+        'ホテルから見えた景色はきれいでした。',
+        'ホテルから見えました景色はきれいでした。',
+        'ホテルから見える景色はきれいでした。',
+      ],
+      correctIndex: 0,
+    },
+    {
+      type: 'dialogue',
+      context: '在店里选礼物。',
+      lines: [
+        { speaker: '店员', text: 'どんなものをお探しですか。' },
+        { speaker: '客人', text: '___', isBlank: true },
+      ],
+      choices: [
+        '子供が喜ぶプレゼントを探しています。',
+        '子供が喜びますプレゼントを探しています。',
+        '子供が喜ぶのプレゼントを探しています。',
+      ],
+      correctIndex: 0,
+    },
+  ],
+};

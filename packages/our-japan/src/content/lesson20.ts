@@ -1,0 +1,425 @@
+import { LessonDef } from '../types';
+
+// Lesson 20: 普通形 (Plain form) usage, ～と思います, ～と言います
+export const lesson20: LessonDef = {
+  id: 20,
+  title: '第20课 我觉得… / 他说…',
+  titleJa: '普通形＋と思います / と言いました',
+  difficulty: 'discrimination',
+  grammarPoints: [
+    {
+      pattern: '普通形＋と思います',
+      meaning: '表示说话人的意见或想法："我觉得/我认为……"',
+      examples: [
+        { ja: '明日は雨が降ると思います。', zh: '我觉得明天会下雨。' },
+        { ja: '日本語は難しいと思います。', zh: '我觉得日语很难。' },
+        { ja: 'この映画はおもしろくないと思います。', zh: '我觉得这部电影不好看。' },
+      ],
+    },
+    {
+      pattern: '普通形＋と言いました',
+      meaning: '转述他人说的话："某人说了……"',
+      examples: [
+        { ja: '田中さんは来ないと言いました。', zh: '田中说他不来。' },
+        { ja: '先生は明日テストがあると言いました。', zh: '老师说明天有考试。' },
+        { ja: 'ミラーさんはこの料理はおいしいと言いました。', zh: '米勒说这道菜很好吃。' },
+      ],
+    },
+    {
+      pattern: '普通形（カジュアル会話）',
+      meaning: '在随意的场合使用普通形说话',
+      examples: [
+        { ja: 'これ、知ってる？', zh: '你知道这个吗？' },
+        { ja: 'うん、もう食べた。', zh: '嗯，已经吃了。' },
+        { ja: 'あした暇？', zh: '明天有空吗？' },
+      ],
+    },
+  ],
+  vocab: [
+    { ja: '思う', reading: 'おもう', zh: '想；认为', example: '私はそう思います' },
+    { ja: '言う', reading: 'いう', zh: '说', example: '先生が言いました' },
+    { ja: '考える', reading: 'かんがえる', zh: '思考；考虑', example: 'よく考えてください' },
+    { ja: '信じる', reading: 'しんじる', zh: '相信', example: '友達を信じる' },
+    { ja: '意見', reading: 'いけん', zh: '意见', example: '意見を言う' },
+    { ja: '賛成', reading: 'さんせい', zh: '赞成', example: 'その意見に賛成です' },
+    { ja: '反対', reading: 'はんたい', zh: '反对', example: 'その計画に反対です' },
+    { ja: '将来', reading: 'しょうらい', zh: '将来', example: '将来の夢' },
+    { ja: '経済', reading: 'けいざい', zh: '经济', example: '日本の経済' },
+    { ja: '政治', reading: 'せいじ', zh: '政治', example: '政治に興味がある' },
+    { ja: 'ニュース', reading: 'にゅーす', zh: '新闻', example: 'ニュースを見る' },
+    { ja: '社会', reading: 'しゃかい', zh: '社会', example: '社会の問題' },
+    { ja: '本当', reading: 'ほんとう', zh: '真的', example: '本当ですか' },
+    { ja: '嘘', reading: 'うそ', zh: '谎话', example: '嘘を言う' },
+    { ja: '普通', reading: 'ふつう', zh: '普通；一般', example: '普通の生活' },
+  ],
+  vocabQuestions: [
+    { type: 'vocab', prompt: '思う', promptAudio: 'おもう', choices: ['想；认为', '说', '看', '听'], correctIndex: 0 },
+    { type: 'vocab', prompt: '言う', promptAudio: 'いう', choices: ['读', '说', '写', '问'], correctIndex: 1 },
+    { type: 'vocab', prompt: '考える', promptAudio: 'かんがえる', choices: ['忘记', '回忆', '思考', '感到'], correctIndex: 2 },
+    { type: 'vocab', prompt: '信じる', promptAudio: 'しんじる', choices: ['怀疑', '害怕', '讨厌', '相信'], correctIndex: 3 },
+    { type: 'vocab', prompt: '意見', promptAudio: 'いけん', choices: ['意见', '条件', '事件', '经验'], correctIndex: 0 },
+    { type: 'vocab', prompt: '賛成', promptAudio: 'さんせい', choices: ['完成', '赞成', '反对', '成功'], correctIndex: 1 },
+    { type: 'vocab', prompt: '反対', promptAudio: 'はんたい', choices: ['赞成', '相同', '反对', '对面'], correctIndex: 2 },
+    { type: 'vocab', prompt: '将来', promptAudio: 'しょうらい', choices: ['过去', '现在', '昨天', '将来'], correctIndex: 3 },
+    { type: 'vocab', prompt: '経済', promptAudio: 'けいざい', choices: ['经济', '经验', '经过', '经理'], correctIndex: 0 },
+    { type: 'vocab', prompt: '政治', promptAudio: 'せいじ', choices: ['地理', '政治', '历史', '科学'], correctIndex: 1 },
+    { type: 'vocab', prompt: 'ニュース', promptAudio: 'にゅーす', choices: ['音乐', '杂志', '新闻', '广告'], correctIndex: 2 },
+    { type: 'vocab', prompt: '社会', promptAudio: 'しゃかい', choices: ['学校', '公司', '家庭', '社会'], correctIndex: 3 },
+    { type: 'vocab', prompt: '本当', promptAudio: 'ほんとう', choices: ['真的', '假的', '大概', '也许'], correctIndex: 0 },
+    { type: 'vocab', prompt: '嘘', promptAudio: 'うそ', choices: ['真话', '谎话', '废话', '笑话'], correctIndex: 1 },
+    { type: 'vocab', prompt: '普通', promptAudio: 'ふつう', choices: ['特别', '异常', '普通', '非常'], correctIndex: 2 },
+    { type: 'vocab', prompt: '考える', promptAudio: 'かんがえる', choices: ['决定', '放弃', '选择', '思考'], correctIndex: 3 },
+  ],
+  assemblyQuestions: [
+    {
+      type: 'assembly',
+      meaning: '我觉得明天会下雨。',
+      blocks: ['と', '降る', '明日は', '思います', '雨が'],
+      correctOrder: ['明日は', '雨が', '降る', 'と', '思います'],
+    },
+    {
+      type: 'assembly',
+      meaning: '我觉得日语很难。',
+      blocks: ['思います', '日本語は', 'と', '難しい'],
+      correctOrder: ['日本語は', '難しい', 'と', '思います'],
+    },
+    {
+      type: 'assembly',
+      meaning: '田中说他不来。',
+      blocks: ['来ない', '田中さんは', '言いました', 'と'],
+      correctOrder: ['田中さんは', '来ない', 'と', '言いました'],
+    },
+    {
+      type: 'assembly',
+      meaning: '老师说明天有考试。',
+      blocks: ['あると', 'テストが', '言いました', '先生は', '明日'],
+      correctOrder: ['先生は', '明日', 'テストが', 'あると', '言いました'],
+    },
+    {
+      type: 'assembly',
+      meaning: '我认为这部电影很有趣。',
+      blocks: ['おもしろい', '思います', 'この映画は', 'と'],
+      correctOrder: ['この映画は', 'おもしろい', 'と', '思います'],
+    },
+    {
+      type: 'assembly',
+      meaning: '米勒说这道菜很好吃。',
+      blocks: ['おいしい', 'この料理は', '言いました', 'と', 'ミラーさんは'],
+      correctOrder: ['ミラーさんは', 'この料理は', 'おいしい', 'と', '言いました'],
+    },
+    {
+      type: 'assembly',
+      meaning: '我觉得经济会变好。',
+      blocks: ['なる', '経済は', '思います', 'と', 'よく'],
+      correctOrder: ['経済は', 'よく', 'なる', 'と', '思います'],
+    },
+    {
+      type: 'assembly',
+      meaning: '他说他已经结婚了。',
+      blocks: ['もう', '言いました', 'と', '結婚した', '彼は'],
+      correctOrder: ['彼は', 'もう', '結婚した', 'と', '言いました'],
+    },
+    {
+      type: 'assembly',
+      meaning: '我觉得那个新闻不是真的。',
+      blocks: ['思います', 'と', 'あのニュースは', '本当じゃない'],
+      correctOrder: ['あのニュースは', '本当じゃない', 'と', '思います'],
+    },
+    {
+      type: 'assembly',
+      meaning: '佐藤说他赞成那个意见。',
+      blocks: ['その意見に', '佐藤さんは', 'と', '賛成だ', '言いました'],
+      correctOrder: ['佐藤さんは', 'その意見に', '賛成だ', 'と', '言いました'],
+    },
+    {
+      type: 'assembly',
+      meaning: '我觉得日本的社会很安全。',
+      blocks: ['と', '安全だ', '日本の社会は', '思います'],
+      correctOrder: ['日本の社会は', '安全だ', 'と', '思います'],
+    },
+  ],
+  grammarCheckQuestions: [
+    {
+      type: 'grammar_check',
+      prompt: '哪句正确表达了"我觉得明天会下雨"？',
+      sentences: [
+        '明日は雨が降ると思います。',
+        '明日は雨が降りますと思います。',
+        '明日は雨が降るを思います。',
+      ],
+      correctIndex: 0,
+      explanation: '「と思います」前面要用普通形。「降ります」是丁宁形，应改为普通形「降る」。',
+    },
+    {
+      type: 'grammar_check',
+      prompt: '哪句正确转述了"田中说他不来"？',
+      sentences: [
+        '田中さんは来ませんと言いました。',
+        '田中さんは来ないと言いました。',
+        '田中さんは来ないを言いました。',
+      ],
+      correctIndex: 1,
+      explanation: '转述他人的话用「普通形＋と言いました」。否定普通形是「来ない」，不是「来ません」。',
+    },
+    {
+      type: 'grammar_check',
+      prompt: '哪句正确使用了「と思います」？',
+      sentences: [
+        'この問題は簡単だと思います。',
+        'この問題は簡単ですと思います。',
+        'この問題は簡単なと思います。',
+      ],
+      correctIndex: 0,
+      explanation: 'な形容词在「と思います」前用「〜だ」（普通形）。「簡単です」是丁宁形，应改为「簡単だ」。',
+    },
+    {
+      type: 'grammar_check',
+      prompt: '哪句语法有误？',
+      sentences: [
+        '先生は明日テストがあると言いました。',
+        '私はその意見に賛成だと思います。',
+        '彼女は来るだと思います。',
+      ],
+      correctIndex: 2,
+      explanation: '动词普通形后面直接接「と思います」。「来る」本身就是普通形，不需要加「だ」。',
+    },
+    {
+      type: 'grammar_check',
+      prompt: '以下哪句正确表达了"我觉得那本书不好看"？',
+      sentences: [
+        'あの本はおもしろいじゃないと思います。',
+        'あの本はおもしろくないと思います。',
+        'あの本はおもしろいないと思います。',
+      ],
+      correctIndex: 1,
+      explanation: 'い形容词的否定普通形是去「い」加「くない」。「おもしろい」→「おもしろくない」。',
+    },
+    {
+      type: 'grammar_check',
+      prompt: '用普通形表达"你知道吗？"在朋友间随便说法是？',
+      sentences: [
+        'あなたは知っていますか。',
+        '知ってる？',
+        '知りますか。',
+      ],
+      correctIndex: 1,
+      explanation: '朋友之间的随意说法用普通形。「知ってる？」是「知っている」的省略口语形式。',
+    },
+    {
+      type: 'grammar_check',
+      prompt: '哪句正确转述"小李说那是谎话"？',
+      sentences: [
+        'リーさんはそれは嘘だと言いました。',
+        'リーさんはそれは嘘ですと言いました。',
+        'リーさんはそれは嘘と言いました。',
+      ],
+      correctIndex: 0,
+      explanation: '名词/な形容词的普通形用「〜だ」。「嘘です」→「嘘だ」＋「と言いました」。',
+    },
+    {
+      type: 'grammar_check',
+      prompt: '哪句正确表达"我觉得将来想当医生"？',
+      sentences: [
+        '将来医者になりたいと思います。',
+        '将来医者になりたいですと思います。',
+        '将来医者になるたいと思います。',
+      ],
+      correctIndex: 0,
+      explanation: '「〜たい」的普通形直接接「と思います」。「なりたいです」是丁宁形，应去掉「です」。',
+    },
+  ],
+  dialogueQuestions: [
+    {
+      type: 'dialogue',
+      context: '朋友在聊周末的天气预报。',
+      lines: [
+        { speaker: 'A', text: '週末の天気はどうだと思いますか。' },
+        { speaker: 'B', text: '___', isBlank: true },
+      ],
+      choices: [
+        '天気がいいですと思います。',
+        'いい天気だと思います。',
+        'いい天気を思います。',
+      ],
+      correctIndex: 1,
+    },
+    {
+      type: 'dialogue',
+      context: '同事在传达上司的话。',
+      lines: [
+        { speaker: '同事', text: '部長は何と言いましたか。' },
+        { speaker: '你', text: '___', isBlank: true },
+      ],
+      choices: [
+        '部長は今日の会議は大切だと言いました。',
+        '部長は今日の会議は大切ですと言いました。',
+        '部長は今日の会議は大切を言いました。',
+      ],
+      correctIndex: 0,
+    },
+    {
+      type: 'dialogue',
+      context: '讨论一部新电影。',
+      lines: [
+        { speaker: 'A', text: 'あの映画、見た？', },
+        { speaker: 'B', text: 'うん。___', isBlank: true },
+      ],
+      choices: [
+        'とてもおもしろいですと思いました。',
+        'とてもおもしろかったと思います。',
+        'とてもおもしろいだと思います。',
+      ],
+      correctIndex: 1,
+    },
+    {
+      type: 'dialogue',
+      context: '在课堂上，老师问学生的看法。',
+      lines: [
+        { speaker: '先生', text: 'この問題について、どう思いますか。' },
+        { speaker: '学生', text: '___', isBlank: true },
+      ],
+      choices: [
+        '難しい問題だと思います。',
+        '難しい問題ですと思います。',
+        '難しい問題だを思います。',
+      ],
+      correctIndex: 0,
+    },
+    {
+      type: 'dialogue',
+      context: '朋友告诉你小王说了什么。',
+      lines: [
+        { speaker: '朋友', text: '王さんが何か言ってたよ。' },
+        { speaker: '你', text: '何て？' },
+        { speaker: '朋友', text: '___', isBlank: true },
+      ],
+      choices: [
+        '来週日本に行きますと言ってた。',
+        '来週日本に行くと言ってた。',
+        '来週日本に行くを言ってた。',
+      ],
+      correctIndex: 1,
+    },
+    {
+      type: 'dialogue',
+      context: '朋友之间的随意聊天。',
+      lines: [
+        { speaker: 'A', text: '今日、暇？' },
+        { speaker: 'B', text: '___', isBlank: true },
+        { speaker: 'A', text: 'じゃ、映画見に行かない？' },
+      ],
+      choices: [
+        'はい、暇であります。',
+        'うん、暇だよ。',
+        'はい、暇でございます。',
+      ],
+      correctIndex: 1,
+    },
+    {
+      type: 'dialogue',
+      context: '讨论日本经济。',
+      lines: [
+        { speaker: 'A', text: '日本の経済はどうなると思いますか。' },
+        { speaker: 'B', text: '___', isBlank: true },
+      ],
+      choices: [
+        'だんだんよくなると思います。',
+        'だんだんよくなりますと思います。',
+        'だんだんよくなるを思います。',
+      ],
+      correctIndex: 0,
+    },
+  ],
+  bossQuestions: [
+    {
+      type: 'boss',
+      subType: 'vocab',
+      question: { type: 'vocab', prompt: '賛成', promptAudio: 'さんせい', choices: ['反对', '中立', '赞成', '理解'], correctIndex: 2 },
+    },
+    {
+      type: 'boss',
+      subType: 'assembly',
+      question: {
+        type: 'assembly',
+        meaning: '我觉得那个意见是对的。',
+        blocks: ['思います', 'と', 'その意見は', '正しい'],
+        correctOrder: ['その意見は', '正しい', 'と', '思います'],
+      },
+    },
+    {
+      type: 'boss',
+      subType: 'grammar_check',
+      question: {
+        type: 'grammar_check',
+        prompt: '哪句正确表达"她说她喜欢日本料理"？',
+        sentences: [
+          '彼女は日本料理が好きだと言いました。',
+          '彼女は日本料理が好きですと言いました。',
+          '彼女は日本料理が好きと言いました。',
+        ],
+        correctIndex: 0,
+        explanation: 'な形容词「好き」的普通形是「好きだ」，所以用「好きだと言いました」。',
+      },
+    },
+    {
+      type: 'boss',
+      subType: 'dialogue',
+      question: {
+        type: 'dialogue',
+        context: '讨论一个社会问题。',
+        lines: [
+          { speaker: '记者', text: 'この問題について、どうお考えですか。' },
+          { speaker: '专家', text: '___', isBlank: true },
+        ],
+        choices: [
+          'もっと考えるべきだと思います。',
+          'もっと考えるべきですと思います。',
+          'もっと考えるべきだを思います。',
+        ],
+        correctIndex: 0,
+      },
+    },
+    {
+      type: 'boss',
+      subType: 'reading',
+      question: {
+        type: 'reading',
+        passage: '田中さんは「来週の会議に出席できない」と言いました。理由は、来週出張があるからだそうです。山田さんは「田中さんがいなくても、会議はできる」と思っています。',
+        passageZh: '田中说"下周的会议不能出席"。据说原因是下周有出差。山田觉得"即使没有田中，会议也能开"。',
+        question: '山田さんはどう思っていますか。',
+        choices: [
+          '会議を延期したほうがいいと思っています。',
+          '田中さんがいなくても会議はできると思っています。',
+          '田中さんの出張は嘘だと思っています。',
+          '来週の会議に出たくないと思っています。',
+        ],
+        correctIndex: 1,
+      },
+    },
+    {
+      type: 'boss',
+      subType: 'assembly',
+      question: {
+        type: 'assembly',
+        meaning: '妈妈说要好好学习。',
+        blocks: ['言いました', '勉強しなさい', 'と', 'お母さんは', 'ちゃんと'],
+        correctOrder: ['お母さんは', 'ちゃんと', '勉強しなさい', 'と', '言いました'],
+      },
+    },
+    {
+      type: 'boss',
+      subType: 'grammar_check',
+      question: {
+        type: 'grammar_check',
+        prompt: '哪句语法完全正确？',
+        sentences: [
+          '彼は頭がいいだと思います。',
+          '日本の将来は明るいと思います。',
+          '先生は忙しいだと言いました。',
+        ],
+        correctIndex: 1,
+        explanation: 'い形容词的普通形直接接「と思います」，不需要加「だ」。「明るい」直接接「と」。',
+      },
+    },
+  ],
+};

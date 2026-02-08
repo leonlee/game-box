@@ -1,0 +1,432 @@
+import { LessonDef } from '../types';
+
+// Lesson 17: ないでください (Please don't), なければなりません (Must do), なくてもいいです (Don't have to)
+export const lesson17: LessonDef = {
+  id: 17,
+  title: '第17课 请不要…/必须…/不必…',
+  titleJa: 'Vないでください / Vなければなりません / Vなくてもいいです',
+  difficulty: 'basic',
+  grammarPoints: [
+    {
+      pattern: 'Vない形 + でください',
+      meaning: '请求对方不要做某事："请不要做…"',
+      examples: [
+        { ja: 'ここで写真を撮らないでください。', zh: '请不要在这里拍照。' },
+        { ja: '心配しないでください。', zh: '请不要担心。' },
+      ],
+    },
+    {
+      pattern: 'Vなければなりません',
+      meaning: '表示义务或必须："必须做…"',
+      examples: [
+        { ja: '毎日薬を飲まなければなりません。', zh: '每天必须吃药。' },
+        { ja: 'レポートを書かなければなりません。', zh: '必须写报告。' },
+      ],
+    },
+    {
+      pattern: 'Vなくてもいいです',
+      meaning: '表示不需要做某事："不必做…/不做也可以"',
+      examples: [
+        { ja: '明日来なくてもいいです。', zh: '明天不来也可以。' },
+        { ja: '靴を脱がなくてもいいです。', zh: '不脱鞋也可以。' },
+      ],
+    },
+  ],
+  vocab: [
+    { ja: '心配する', reading: 'しんぱいする', zh: '担心' },
+    { ja: '遅れる', reading: 'おくれる', zh: '迟到' },
+    { ja: '忘れる', reading: 'わすれる', zh: '忘记' },
+    { ja: '触る', reading: 'さわる', zh: '触摸' },
+    { ja: '走る', reading: 'はしる', zh: '跑' },
+    { ja: '脱ぐ', reading: 'ぬぐ', zh: '脱（衣服/鞋）' },
+    { ja: '返す', reading: 'かえす', zh: '归还' },
+    { ja: '届ける', reading: 'とどける', zh: '送达/提交' },
+    { ja: '予約する', reading: 'よやくする', zh: '预约' },
+    { ja: '準備する', reading: 'じゅんびする', zh: '准备' },
+    { ja: 'レポート', reading: 'れぽーと', zh: '报告' },
+    { ja: '約束', reading: 'やくそく', zh: '约定' },
+    { ja: '宿題', reading: 'しゅくだい', zh: '作业' },
+    { ja: 'パスポート', reading: 'ぱすぽーと', zh: '护照' },
+    { ja: '廊下', reading: 'ろうか', zh: '走廊' },
+  ],
+  vocabQuestions: [
+    { type: 'vocab', prompt: '心配する', promptAudio: 'しんぱいする', choices: ['担心', '安心', '放心', '高兴'], correctIndex: 0 },
+    { type: 'vocab', prompt: '遅れる', promptAudio: 'おくれる', choices: ['提前', '迟到', '准时', '取消'], correctIndex: 1 },
+    { type: 'vocab', prompt: '忘れる', promptAudio: 'わすれる', choices: ['记住', '想起', '忘记', '学习'], correctIndex: 2 },
+    { type: 'vocab', prompt: '触る', promptAudio: 'さわる', choices: ['看', '听', '闻', '触摸'], correctIndex: 3 },
+    { type: 'vocab', prompt: '走る', promptAudio: 'はしる', choices: ['跑', '走', '飞', '游'], correctIndex: 0 },
+    { type: 'vocab', prompt: '脱ぐ', promptAudio: 'ぬぐ', choices: ['穿', '脱', '洗', '买'], correctIndex: 1 },
+    { type: 'vocab', prompt: '返す', promptAudio: 'かえす', choices: ['借', '买', '归还', '送'], correctIndex: 2 },
+    { type: 'vocab', prompt: '届ける', promptAudio: 'とどける', choices: ['收到', '丢失', '寄出', '送达'], correctIndex: 3 },
+    { type: 'vocab', prompt: '予約する', promptAudio: 'よやくする', choices: ['预约', '取消', '变更', '确认'], correctIndex: 0 },
+    { type: 'vocab', prompt: '準備する', promptAudio: 'じゅんびする', choices: ['结束', '准备', '开始', '中止'], correctIndex: 1 },
+    { type: 'vocab', prompt: 'レポート', promptAudio: 'れぽーと', choices: ['笔记', '教材', '报告', '试卷'], correctIndex: 2 },
+    { type: 'vocab', prompt: '約束', promptAudio: 'やくそく', choices: ['取消', '拒绝', '道歉', '约定'], correctIndex: 3 },
+    { type: 'vocab', prompt: '宿題', promptAudio: 'しゅくだい', choices: ['作业', '考试', '课文', '练习'], correctIndex: 0 },
+    { type: 'vocab', prompt: 'パスポート', promptAudio: 'ぱすぽーと', choices: ['签证', '护照', '机票', '行李'], correctIndex: 1 },
+    { type: 'vocab', prompt: '廊下', promptAudio: 'ろうか', choices: ['教室', '办公室', '走廊', '楼梯'], correctIndex: 2 },
+    { type: 'vocab', prompt: '撮る', promptAudio: 'とる', choices: ['听', '看', '读', '拍摄'], correctIndex: 3 },
+    { type: 'vocab', prompt: '薬', promptAudio: 'くすり', choices: ['药', '水', '食物', '毒'], correctIndex: 0 },
+  ],
+  assemblyQuestions: [
+    {
+      type: 'assembly',
+      meaning: '请不要在这里拍照。',
+      blocks: ['撮らないで', '写真を', 'ください', 'ここで'],
+      correctOrder: ['ここで', '写真を', '撮らないで', 'ください'],
+    },
+    {
+      type: 'assembly',
+      meaning: '请不要担心。',
+      blocks: ['ください', '心配', 'しないで'],
+      correctOrder: ['心配', 'しないで', 'ください'],
+    },
+    {
+      type: 'assembly',
+      meaning: '每天必须吃药。',
+      blocks: ['飲まなければ', '毎日', 'なりません', '薬を'],
+      correctOrder: ['毎日', '薬を', '飲まなければ', 'なりません'],
+    },
+    {
+      type: 'assembly',
+      meaning: '必须写报告。',
+      blocks: ['なりません', 'レポートを', '書かなければ'],
+      correctOrder: ['レポートを', '書かなければ', 'なりません'],
+    },
+    {
+      type: 'assembly',
+      meaning: '明天不来也可以。',
+      blocks: ['いいです', '来なくても', '明日'],
+      correctOrder: ['明日', '来なくても', 'いいです'],
+    },
+    {
+      type: 'assembly',
+      meaning: '不脱鞋也可以。',
+      blocks: ['いいです', '脱がなくても', '靴を'],
+      correctOrder: ['靴を', '脱がなくても', 'いいです'],
+    },
+    {
+      type: 'assembly',
+      meaning: '请不要在走廊里跑。',
+      blocks: ['走らないで', 'ください', 'で', '廊下'],
+      correctOrder: ['廊下', 'で', '走らないで', 'ください'],
+    },
+    {
+      type: 'assembly',
+      meaning: '必须在9点之前到。',
+      blocks: ['なりません', '来なければ', '9時まで', 'に'],
+      correctOrder: ['9時まで', 'に', '来なければ', 'なりません'],
+    },
+    {
+      type: 'assembly',
+      meaning: '不预约也可以。',
+      blocks: ['いいです', '予約', 'しなくても'],
+      correctOrder: ['予約', 'しなくても', 'いいです'],
+    },
+    {
+      type: 'assembly',
+      meaning: '必须归还这本书。',
+      blocks: ['返さなければ', 'この本を', 'なりません'],
+      correctOrder: ['この本を', '返さなければ', 'なりません'],
+    },
+    {
+      type: 'assembly',
+      meaning: '请不要忘记护照。',
+      blocks: ['ください', 'パスポートを', '忘れないで'],
+      correctOrder: ['パスポートを', '忘れないで', 'ください'],
+    },
+  ],
+  grammarCheckQuestions: [
+    {
+      type: 'grammar_check',
+      prompt: '哪句正确表达了"请不要在这里拍照"？',
+      sentences: [
+        'ここで写真を撮らないでください。',
+        'ここで写真を撮ってないください。',
+        'ここで写真を撮るないでください。',
+      ],
+      correctIndex: 0,
+      explanation: '「Vない形＋でください」表示"请不要做…"。「撮る」的ない形是「撮らない」。',
+    },
+    {
+      type: 'grammar_check',
+      prompt: '哪句正确表达了"必须每天学习"？',
+      sentences: [
+        '毎日勉強しなければなりません。',
+        '毎日勉強しなくてなりません。',
+        '毎日勉強しないなければなりません。',
+      ],
+      correctIndex: 0,
+      explanation: '「Vなければなりません」表示"必须做…"。「する」的ない形是「しない」，变为「しなければ」。',
+    },
+    {
+      type: 'grammar_check',
+      prompt: '哪句正确表达了"不付钱也可以"？',
+      sentences: [
+        'お金を払わなくてもいいです。',
+        'お金を払わないでもいいです。',
+        'お金を払わなければいいです。',
+      ],
+      correctIndex: 0,
+      explanation: '「Vなくてもいいです」表示"不做也可以"。「払う」的ない形是「払わない」，变为「払わなくても」。',
+    },
+    {
+      type: 'grammar_check',
+      prompt: '以下哪个句子的语法有错误？',
+      sentences: [
+        '心配しないでください。',
+        '明日来なくてもいいです。',
+        '宿題を書かないなければなりません。',
+      ],
+      correctIndex: 2,
+      explanation: '正确的说法是「書かなければなりません」，「ない」变成「なければ」，不能重复「ない」。',
+    },
+    {
+      type: 'grammar_check',
+      prompt: '哪句正确表达了"请不要迟到"？',
+      sentences: [
+        '遅れないでください。',
+        '遅れなくてください。',
+        '遅れるないでください。',
+      ],
+      correctIndex: 0,
+      explanation: '「遅れる」的ない形是「遅れない」，加「でください」表示"请不要迟到"。',
+    },
+    {
+      type: 'grammar_check',
+      prompt: '哪句正确表达了"不带护照也可以"？',
+      sentences: [
+        'パスポートを持っていかなくてもいいです。',
+        'パスポートを持っていかないでいいです。',
+        'パスポートを持っていかなければいいです。',
+      ],
+      correctIndex: 0,
+      explanation: '「Vなくてもいいです」才是"不做也可以"。「持っていく」的ない形是「持っていかない」。',
+    },
+    {
+      type: 'grammar_check',
+      prompt: '哪句正确表达了"必须准备"？',
+      sentences: [
+        '準備しなければなりません。',
+        '準備しないなりません。',
+        '準備しなくてなりません。',
+      ],
+      correctIndex: 0,
+      explanation: '「する」→「しない」→「しなければなりません」，注意变化是从ない形来的。',
+    },
+    {
+      type: 'grammar_check',
+      prompt: '"请不要触摸展品"正确的日语是？',
+      sentences: [
+        '展示品に触らないでください。',
+        '展示品に触ってはないでください。',
+        '展示品に触るないでください。',
+        '展示品に触らなくてください。',
+      ],
+      correctIndex: 0,
+      explanation: '「触る」的ない形是「触らない」，加「でください」表示"请不要触摸"。',
+    },
+  ],
+  dialogueQuestions: [
+    {
+      type: 'dialogue',
+      context: '医生叮嘱病人注意事项。',
+      lines: [
+        { speaker: '医生', text: 'お酒を___。', isBlank: true },
+        { speaker: '病人', text: 'はい、わかりました。' },
+      ],
+      choices: [
+        '飲まないでください',
+        '飲まなければなりません',
+        '飲まなくてもいいです',
+      ],
+      correctIndex: 0,
+    },
+    {
+      type: 'dialogue',
+      context: '老师告诉学生明天的考试安排。',
+      lines: [
+        { speaker: '先生', text: '明日はテストですから、教科書を___。', isBlank: true },
+        { speaker: '学生', text: 'はい、忘れません。' },
+      ],
+      choices: [
+        '持って来なくてもいいです',
+        '持って来ないでください',
+        '持って来なければなりません',
+      ],
+      correctIndex: 2,
+    },
+    {
+      type: 'dialogue',
+      context: '朋友问周末是否需要工作。',
+      lines: [
+        { speaker: '朋友A', text: '土曜日も仕事をしなければなりませんか。' },
+        { speaker: '朋友B', text: 'いいえ、___。', isBlank: true },
+      ],
+      choices: [
+        '仕事をしなくてもいいです',
+        '仕事をしないでください',
+        '仕事をしなければなりません',
+      ],
+      correctIndex: 0,
+    },
+    {
+      type: 'dialogue',
+      context: '博物馆的工作人员提醒游客。',
+      lines: [
+        { speaker: '工作人员', text: 'すみません、ここで食べ物を___。', isBlank: true },
+        { speaker: '游客', text: 'あ、すみません。' },
+      ],
+      choices: [
+        '食べなくてもいいです',
+        '食べなければなりません',
+        '食べないでください',
+      ],
+      correctIndex: 2,
+    },
+    {
+      type: 'dialogue',
+      context: '新员工问上司关于加班的事情。',
+      lines: [
+        { speaker: '新员工', text: '毎日残業しなければなりませんか。' },
+        { speaker: '上司', text: '___。仕事が終わったら、帰ってもいいですよ。', isBlank: true },
+      ],
+      choices: [
+        'はい、しなければなりません',
+        'いいえ、しなくてもいいです',
+        'いいえ、しないでください',
+      ],
+      correctIndex: 1,
+    },
+    {
+      type: 'dialogue',
+      context: '学生问老师作业的提交方式。',
+      lines: [
+        { speaker: '学生', text: 'レポートは手書きで書かなければなりませんか。' },
+        { speaker: '先生', text: '___。パソコンで書いてもいいですよ。', isBlank: true },
+      ],
+      choices: [
+        'はい、書かなければなりません',
+        'いいえ、手書きで書かなくてもいいです',
+        'いいえ、書かないでください',
+      ],
+      correctIndex: 1,
+    },
+    {
+      type: 'dialogue',
+      context: '旅馆前台说明退房事项。',
+      lines: [
+        { speaker: '前台', text: 'チェックアウトは10時です。10時までに___。', isBlank: true },
+        { speaker: '客人', text: 'わかりました。' },
+      ],
+      choices: [
+        '部屋を出ないでください',
+        '部屋を出なくてもいいです',
+        '部屋を出なければなりません',
+      ],
+      correctIndex: 2,
+    },
+  ],
+  bossQuestions: [
+    {
+      type: 'boss',
+      subType: 'vocab',
+      question: { type: 'vocab', prompt: '準備する', promptAudio: 'じゅんびする', choices: ['收拾', '准备', '整理', '计划'], correctIndex: 1 },
+    },
+    {
+      type: 'boss',
+      subType: 'assembly',
+      question: {
+        type: 'assembly',
+        meaning: '这里请不要吸烟。必须到外面去。',
+        blocks: ['出なければ', 'ここで', '吸わないで', 'ください', '外に', 'なりません', 'タバコを'],
+        correctOrder: ['ここで', 'タバコを', '吸わないで', 'ください', '外に', '出なければ', 'なりません'],
+        hint: '两个句子：请不要…，必须…',
+      },
+    },
+    {
+      type: 'boss',
+      subType: 'grammar_check',
+      question: {
+        type: 'grammar_check',
+        prompt: '以下哪个句子同时正确使用了"必须"和"不必"？',
+        sentences: [
+          '薬を飲まなければなりません。でも、注射はしなくてもいいです。',
+          '薬を飲まなくてなりません。でも、注射はしないでもいいです。',
+          '薬を飲まないなければなりません。でも、注射はしなくてはいいです。',
+        ],
+        correctIndex: 0,
+        explanation: '「飲まなければなりません」表示"必须喝"，「しなくてもいいです」表示"不做也可以"。两种语法分别从ない形变化而来。',
+      },
+    },
+    {
+      type: 'boss',
+      subType: 'dialogue',
+      question: {
+        type: 'dialogue',
+        context: '入境时，海关人员和旅客的对话。',
+        lines: [
+          { speaker: '海关', text: 'パスポートを見せなければなりません。' },
+          { speaker: '旅客', text: 'はい、どうぞ。荷物も開けなければなりませんか。' },
+          { speaker: '海关', text: '___', isBlank: true },
+        ],
+        choices: [
+          'いいえ、開けなくてもいいです。',
+          'はい、開けないでください。',
+          'いいえ、開けなければなりません。',
+        ],
+        correctIndex: 0,
+      },
+    },
+    {
+      type: 'boss',
+      subType: 'reading',
+      question: {
+        type: 'reading',
+        passage: '病院のお知らせ：病院の中では、携帯電話を使わないでください。大きい声で話さないでください。毎日薬を飲まなければなりません。でも、土曜日は病院に来なくてもいいです。',
+        passageZh: '医院通知：在医院里，请不要使用手机。请不要大声说话。每天必须吃药。但是，星期六不来医院也可以。',
+        question: '土曜日について正しいのはどれですか。',
+        choices: [
+          '土曜日は薬を飲まなくてもいいです。',
+          '土曜日は病院に来なくてもいいです。',
+          '土曜日は携帯電話を使ってもいいです。',
+          '土曜日は病院に来なければなりません。',
+        ],
+        correctIndex: 1,
+      },
+    },
+    {
+      type: 'boss',
+      subType: 'reading',
+      question: {
+        type: 'reading',
+        passage: '図書館のルール：①本を借りるとき、カードを見せなければなりません。②図書館の中で食べ物を食べないでください。③本は2週間で返さなければなりません。④雑誌は借りなくてもいいです。図書館で読んでください。',
+        passageZh: '图书馆规则：①借书时必须出示借书卡。②请不要在图书馆里吃东西。③书必须在两周内归还。④杂志不需要借。请在图书馆里阅读。',
+        question: '雑誌について正しいのはどれですか。',
+        choices: [
+          '雑誌は2週間で返さなければなりません。',
+          '雑誌は借りなくてもいいです。図書館で読みます。',
+          '雑誌は借りなければなりません。',
+          '雑誌は食べてもいいです。',
+        ],
+        correctIndex: 1,
+      },
+    },
+    {
+      type: 'boss',
+      subType: 'assembly',
+      question: {
+        type: 'assembly',
+        meaning: '请不要忘记约定。必须准时来。',
+        blocks: ['忘れないで', '来なければ', 'ください', '約束を', '時間に', 'なりません'],
+        correctOrder: ['約束を', '忘れないで', 'ください', '時間に', '来なければ', 'なりません'],
+        hint: '两个句子组合',
+      },
+    },
+    {
+      type: 'boss',
+      subType: 'vocab',
+      question: { type: 'vocab', prompt: '届ける', promptAudio: 'とどける', choices: ['接收', '丢弃', '送达', '运送'], correctIndex: 2 },
+    },
+  ],
+};

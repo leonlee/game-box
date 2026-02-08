@@ -1,0 +1,465 @@
+import { LessonDef } from '../types';
+
+// Lesson 25: 〜たら (Conditional), 〜ても (Even if) — FINAL review
+export const lesson25: LessonDef = {
+  id: 25,
+  title: '第25课 如果…的话 / 即使…也…',
+  titleJa: '〜たら / 〜ても',
+  difficulty: 'synthesis',
+  grammarPoints: [
+    {
+      pattern: 'Vた形 + ら',
+      meaning: '如果…的话（假定条件）',
+      examples: [
+        { ja: '雨が降ったら、出かけません。', zh: '如果下雨的话，就不出门。' },
+        { ja: '安かったら、買います。', zh: '如果便宜的话，就买。' },
+      ],
+    },
+    {
+      pattern: 'い形 → ～かったら / な形 → ～だったら / N → ～だったら',
+      meaning: '形容词/名词的「〜たら」条件形',
+      examples: [
+        { ja: '天気がよかったら、散歩します。', zh: '天气好的话，就去散步。' },
+        { ja: '暇だったら、遊びに来てください。', zh: '有空的话，请来玩。' },
+      ],
+    },
+    {
+      pattern: 'Vて形 + も',
+      meaning: '即使…也…（让步条件）',
+      examples: [
+        { ja: '雨が降っても、サッカーをします。', zh: '即使下雨，也踢足球。' },
+        { ja: '高くても、買います。', zh: '即使贵，也要买。' },
+      ],
+    },
+    {
+      pattern: 'い形 → ～くても / な形 → ～でも / N → ～でも',
+      meaning: '形容词/名词的「〜ても」让步形',
+      examples: [
+        { ja: '忙しくても、毎日運動します。', zh: '即使忙，每天也运动。' },
+        { ja: '日曜日でも、仕事があります。', zh: '即使是星期天，也有工作。' },
+      ],
+    },
+  ],
+  vocab: [
+    { ja: '降る', reading: 'ふる', zh: '（雨、雪）下', example: '雨が降る' },
+    { ja: '届く', reading: 'とどく', zh: '收到/送到' },
+    { ja: '受かる', reading: 'うかる', zh: '考上/合格' },
+    { ja: '落ちる', reading: 'おちる', zh: '落下/落榜' },
+    { ja: '間に合う', reading: 'まにあう', zh: '赶上/来得及' },
+    { ja: '諦める', reading: 'あきらめる', zh: '放弃' },
+    { ja: '反対する', reading: 'はんたいする', zh: '反对' },
+    { ja: '賛成する', reading: 'さんせいする', zh: '赞成' },
+    { ja: '失敗する', reading: 'しっぱいする', zh: '失败' },
+    { ja: '成功する', reading: 'せいこうする', zh: '成功' },
+    { ja: '天気', reading: 'てんき', zh: '天气' },
+    { ja: '試験', reading: 'しけん', zh: '考试' },
+    { ja: '約束', reading: 'やくそく', zh: '约定' },
+    { ja: '卒業', reading: 'そつぎょう', zh: '毕业' },
+    { ja: '宝くじ', reading: 'たからくじ', zh: '彩票' },
+    { ja: '無理', reading: 'むり', zh: '不合理/勉强' },
+  ],
+  vocabQuestions: [
+    { type: 'vocab', prompt: '降る', promptAudio: 'ふる', choices: ['（雨、雪）下', '吹', '晴', '阴'], correctIndex: 0 },
+    { type: 'vocab', prompt: '届く', promptAudio: 'とどく', choices: ['寄出', '收到/送到', '丢失', '退回'], correctIndex: 1 },
+    { type: 'vocab', prompt: '受かる', promptAudio: 'うかる', choices: ['失败', '放弃', '考上/合格', '退学'], correctIndex: 2 },
+    { type: 'vocab', prompt: '落ちる', promptAudio: 'おちる', choices: ['上升', '停止', '到达', '落下/落榜'], correctIndex: 3 },
+    { type: 'vocab', prompt: '間に合う', promptAudio: 'まにあう', choices: ['赶上/来得及', '迟到', '取消', '等待'], correctIndex: 0 },
+    { type: 'vocab', prompt: '諦める', promptAudio: 'あきらめる', choices: ['坚持', '放弃', '尝试', '开始'], correctIndex: 1 },
+    { type: 'vocab', prompt: '反対する', promptAudio: 'はんたいする', choices: ['赞成', '无视', '反对', '妥协'], correctIndex: 2 },
+    { type: 'vocab', prompt: '賛成する', promptAudio: 'さんせいする', choices: ['拒绝', '犹豫', '反对', '赞成'], correctIndex: 3 },
+    { type: 'vocab', prompt: '失敗する', promptAudio: 'しっぱいする', choices: ['失败', '成功', '挑战', '练习'], correctIndex: 0 },
+    { type: 'vocab', prompt: '成功する', promptAudio: 'せいこうする', choices: ['失败', '成功', '中断', '放弃'], correctIndex: 1 },
+    { type: 'vocab', prompt: '天気', promptAudio: 'てんき', choices: ['季节', '温度', '天气', '风'], correctIndex: 2 },
+    { type: 'vocab', prompt: '試験', promptAudio: 'しけん', choices: ['作业', '练习', '授课', '考试'], correctIndex: 3 },
+    { type: 'vocab', prompt: '約束', promptAudio: 'やくそく', choices: ['约定', '取消', '延迟', '拒绝'], correctIndex: 0 },
+    { type: 'vocab', prompt: '卒業', promptAudio: 'そつぎょう', choices: ['入学', '毕业', '休学', '转学'], correctIndex: 1 },
+    { type: 'vocab', prompt: '宝くじ', promptAudio: 'たからくじ', choices: ['存款', '贷款', '彩票', '奖金'], correctIndex: 2 },
+    { type: 'vocab', prompt: '無理', promptAudio: 'むり', choices: ['简单', '有趣', '可能', '不合理/勉强'], correctIndex: 3 },
+  ],
+  assemblyQuestions: [
+    {
+      type: 'assembly',
+      meaning: '如果下雨的话，就不出门。',
+      blocks: ['出かけません', '降ったら', '雨が'],
+      correctOrder: ['雨が', '降ったら', '出かけません'],
+    },
+    {
+      type: 'assembly',
+      meaning: '如果便宜的话，就买。',
+      blocks: ['買います', '安かったら'],
+      correctOrder: ['安かったら', '買います'],
+    },
+    {
+      type: 'assembly',
+      meaning: '天气好的话，就去散步。',
+      blocks: ['散歩します', 'よかったら', '天気が'],
+      correctOrder: ['天気が', 'よかったら', '散歩します'],
+    },
+    {
+      type: 'assembly',
+      meaning: '有空的话，请来玩。',
+      blocks: ['遊びに', '暇だったら', '来てください'],
+      correctOrder: ['暇だったら', '遊びに', '来てください'],
+    },
+    {
+      type: 'assembly',
+      meaning: '即使下雨，也踢足球。',
+      blocks: ['降っても', 'サッカーを', 'します', '雨が'],
+      correctOrder: ['雨が', '降っても', 'サッカーを', 'します'],
+    },
+    {
+      type: 'assembly',
+      meaning: '即使贵，也要买。',
+      blocks: ['買います', '高くても'],
+      correctOrder: ['高くても', '買います'],
+    },
+    {
+      type: 'assembly',
+      meaning: '即使忙，每天也运动。',
+      blocks: ['運動します', '忙しくても', '毎日'],
+      correctOrder: ['忙しくても', '毎日', '運動します'],
+    },
+    {
+      type: 'assembly',
+      meaning: '如果中了彩票的话，想去环游世界。',
+      blocks: ['世界旅行を', '宝くじに', 'したいです', '当たったら'],
+      correctOrder: ['宝くじに', '当たったら', '世界旅行を', 'したいです'],
+    },
+    {
+      type: 'assembly',
+      meaning: '即使失败了，也不放弃。',
+      blocks: ['失敗しても', '諦めません'],
+      correctOrder: ['失敗しても', '諦めません'],
+    },
+    {
+      type: 'assembly',
+      meaning: '如果明天是晴天的话，去海边。',
+      blocks: ['明日', '晴れだったら', '海に', '行きます'],
+      correctOrder: ['明日', '晴れだったら', '海に', '行きます'],
+    },
+    {
+      type: 'assembly',
+      meaning: '即使大家反对，我也要做。',
+      blocks: ['反対しても', 'やります', 'みんなが', '私は'],
+      correctOrder: ['みんなが', '反対しても', '私は', 'やります'],
+    },
+  ],
+  grammarCheckQuestions: [
+    {
+      type: 'grammar_check',
+      prompt: '哪句正确使用了「〜たら」表示条件？',
+      sentences: [
+        '雨が降ったら、出かけません。',
+        '雨が降るたら、出かけません。',
+        '雨が降ってら、出かけません。',
+      ],
+      correctIndex: 0,
+      explanation: '「〜たら」接在动词た形后面。「降る」→「降った」＋「ら」＝「降ったら」。',
+    },
+    {
+      type: 'grammar_check',
+      prompt: '哪句正确使用了い形容词的「〜たら」？',
+      sentences: [
+        '安いたら、買います。',
+        '安だったら、買います。',
+        '安かったら、買います。',
+      ],
+      correctIndex: 2,
+      explanation: 'い形容词的「たら」形：去「い」加「かったら」。「安い」→「安かったら」。',
+    },
+    {
+      type: 'grammar_check',
+      prompt: '哪句正确使用了な形容词的「〜たら」？',
+      sentences: [
+        '暇なたら、遊びに来てください。',
+        '暇だったら、遊びに来てください。',
+        '暇かったら、遊びに来てください。',
+      ],
+      correctIndex: 1,
+      explanation: 'な形容词的「たら」形：词干＋「だったら」。「暇」→「暇だったら」。',
+    },
+    {
+      type: 'grammar_check',
+      prompt: '哪句正确使用了「〜ても」表示让步？',
+      sentences: [
+        '雨が降っても、サッカーをします。',
+        '雨が降るても、サッカーをします。',
+        '雨が降ったも、サッカーをします。',
+      ],
+      correctIndex: 0,
+      explanation: '「〜ても」接在动词て形后面。「降る」→「降って」＋「も」＝「降っても」。',
+    },
+    {
+      type: 'grammar_check',
+      prompt: '哪句正确使用了い形容词的「〜ても」？',
+      sentences: [
+        '高いても、買います。',
+        '高くても、買います。',
+        '高でも、買います。',
+      ],
+      correctIndex: 1,
+      explanation: 'い形容词的「ても」形：去「い」加「くても」。「高い」→「高くても」。',
+    },
+    {
+      type: 'grammar_check',
+      prompt: '哪句有语法错误？',
+      sentences: [
+        '試験に受かったら、パーティーをします。',
+        '失敗しても、諦めません。',
+        '忙しいでも、毎日勉強します。',
+      ],
+      correctIndex: 2,
+      explanation: '「忙しい」是い形容词，「ても」形应该是「忙しくても」，不能用「忙しいでも」。',
+    },
+    {
+      type: 'grammar_check',
+      prompt: '以下哪句正确区分了「〜たら」和「〜ても」？',
+      sentences: [
+        '雨が降ったら出かけます。雨が降っても出かけません。',
+        '雨が降ったら出かけません。雨が降っても出かけます。',
+        '雨が降ったら出かけません。雨が降っても出かけません。',
+      ],
+      correctIndex: 1,
+      explanation: '「降ったら出かけません」= 如果下雨就不出门。「降っても出かけます」= 即使下雨也出门。两个句子的逻辑方向相反。',
+    },
+    {
+      type: 'grammar_check',
+      prompt: '哪句正确表达"即使是星期天也有工作"？',
+      sentences: [
+        '日曜日でも、仕事があります。',
+        '日曜日ても、仕事があります。',
+        '日曜日だっても、仕事があります。',
+      ],
+      correctIndex: 0,
+      explanation: '名词的「〜ても」形：名词＋「でも」。「日曜日」→「日曜日でも」。',
+    },
+    {
+      type: 'grammar_check',
+      prompt: '哪句正确表达"如果毕业了的话，想去日本工作"？',
+      sentences: [
+        '卒業したら、日本で働きたいです。',
+        '卒業するたら、日本で働きたいです。',
+        '卒業してら、日本で働きたいです。',
+      ],
+      correctIndex: 0,
+      explanation: '「卒業する」→「卒業した」＋「ら」＝「卒業したら」。',
+    },
+  ],
+  dialogueQuestions: [
+    {
+      type: 'dialogue',
+      context: '朋友在讨论周末的计划。',
+      lines: [
+        { speaker: '友人A', text: '土曜日、サッカーをしませんか。' },
+        { speaker: '友人B', text: '___', isBlank: true },
+      ],
+      choices: [
+        '雨が降っても、行きます。',
+        '雨が降ったら、行きます。',
+        '雨が降るても、行きます。',
+      ],
+      correctIndex: 0,
+    },
+    {
+      type: 'dialogue',
+      context: '在商店里选购东西。',
+      lines: [
+        { speaker: '客', text: 'これ、ちょっと高いですね。' },
+        { speaker: '店員', text: '___', isBlank: true },
+        { speaker: '客', text: 'じゃ、それをください。' },
+      ],
+      choices: [
+        'こちらだったら、もっと安いですよ。',
+        'こちらでも、もっと安いですよ。',
+        'こちらだっても、もっと安いですよ。',
+      ],
+      correctIndex: 0,
+    },
+    {
+      type: 'dialogue',
+      context: '学生在和老师讨论将来的梦想。',
+      lines: [
+        { speaker: '先生', text: '将来、何をしたいですか。' },
+        { speaker: '学生', text: '___', isBlank: true },
+      ],
+      choices: [
+        '大学を卒業したら、日本で働きたいです。',
+        '大学を卒業しても、日本で働きたいです。',
+        '大学を卒業するたら、日本で働きたいです。',
+      ],
+      correctIndex: 0,
+    },
+    {
+      type: 'dialogue',
+      context: '朋友鼓励正在为考试烦恼的人。',
+      lines: [
+        { speaker: '友人A', text: '試験に落ちたらどうしよう……', },
+        { speaker: '友人B', text: '___', isBlank: true },
+      ],
+      choices: [
+        '失敗しても、また挑戦すればいいですよ。',
+        '失敗したら、諦めてください。',
+        '失敗するても、大丈夫です。',
+      ],
+      correctIndex: 0,
+    },
+    {
+      type: 'dialogue',
+      context: '两人在聊中彩票的假设。',
+      lines: [
+        { speaker: 'A', text: 'もし宝くじに当たったら、何をしますか。' },
+        { speaker: 'B', text: '___', isBlank: true },
+      ],
+      choices: [
+        '当たっても、何もしません。',
+        '当たったら、世界旅行をしたいです。',
+        '当たるたら、家を買います。',
+      ],
+      correctIndex: 1,
+    },
+    {
+      type: 'dialogue',
+      context: '讨论天气和出行计划。',
+      lines: [
+        { speaker: '妻', text: '明日の天気はどうですか。' },
+        { speaker: '夫', text: '雨かもしれません。' },
+        { speaker: '妻', text: '___', isBlank: true },
+      ],
+      choices: [
+        '雨だったら、家にいましょう。',
+        '雨だっても、家にいましょう。',
+        '雨なら、家にいましょう。',
+      ],
+      correctIndex: 0,
+    },
+    {
+      type: 'dialogue',
+      context: '在公司，上司问下属的决心。',
+      lines: [
+        { speaker: '上司', text: 'このプロジェクトは大変ですよ。' },
+        { speaker: '部下', text: '___。頑張ります。', isBlank: true },
+      ],
+      choices: [
+        '大変だったら、やめます',
+        '大変でも、やります',
+        '大変くても、やります',
+      ],
+      correctIndex: 1,
+    },
+  ],
+  bossQuestions: [
+    {
+      type: 'boss',
+      subType: 'reading',
+      question: {
+        type: 'reading',
+        passage: '来月、日本語の試験があります。毎日3時間勉強しています。試験に受かったら、日本の大学に留学したいです。もし落ちても、諦めません。何回でも挑戦します。友だちが「一緒に勉強してあげるよ」と言ってくれました。忙しいときでも、時間を作って手伝ってくれます。本当にありがたいです。',
+        passageZh: '下个月有日语考试。每天学习3小时。如果考上的话，想去日本的大学留学。即使没考上，也不放弃。不管几次都要挑战。朋友说"我陪你一起学习"。即使忙的时候，也会抽出时间帮我。真的很感激。',
+        question: '試験に落ちたら、筆者はどうしますか。',
+        choices: [
+          '諦めます。',
+          '友だちに怒ります。',
+          '諦めないで、また挑戦します。',
+          '日本に行きません。',
+        ],
+        correctIndex: 2,
+      },
+    },
+    {
+      type: 'boss',
+      subType: 'grammar_check',
+      question: {
+        type: 'grammar_check',
+        prompt: '哪句综合使用了「〜たら」和「〜ても」是正确的？',
+        sentences: [
+          '時間があったら来てください。忙しくても電話してください。',
+          '時間があるたら来てください。忙しいても電話してください。',
+          '時間があったら来てください。忙しいでも電話してください。',
+        ],
+        correctIndex: 0,
+        explanation: '「ある」→「あったら」（動詞た形＋ら）。「忙しい」→「忙しくても」（い形容词去い＋くても）。',
+      },
+    },
+    {
+      type: 'boss',
+      subType: 'assembly',
+      question: {
+        type: 'assembly',
+        meaning: '即使大家反对，我也不放弃。',
+        blocks: ['諦めません', '反対しても', '私は', 'みんなが'],
+        correctOrder: ['みんなが', '反対しても', '私は', '諦めません'],
+      },
+    },
+    {
+      type: 'boss',
+      subType: 'vocab',
+      question: {
+        type: 'vocab',
+        prompt: '諦める',
+        promptAudio: 'あきらめる',
+        choices: ['开始', '继续', '放弃', '挑战'],
+        correctIndex: 2,
+      },
+    },
+    {
+      type: 'boss',
+      subType: 'dialogue',
+      question: {
+        type: 'dialogue',
+        context: '综合复习：朋友在聊未来的计划和决心。',
+        lines: [
+          { speaker: 'A', text: '卒業したら、何をしますか。' },
+          { speaker: 'B', text: '日本で働きたいです。___。', isBlank: true },
+        ],
+        choices: [
+          '難しくても、頑張ります',
+          '難しかったら、頑張ります',
+          '難しいても、頑張ります',
+        ],
+        correctIndex: 0,
+      },
+    },
+    {
+      type: 'boss',
+      subType: 'reading',
+      question: {
+        type: 'reading',
+        passage: '日本に来たとき、日本語が全然わかりませんでした。困ったとき、近所のおばさんがいつも助けてくれました。買い物に行くとき、一緒に来てくれました。暇なとき、日本料理を作ってくれました。おばさんがいなかったら、日本の生活はもっと大変だったと思います。',
+        passageZh: '刚来日本的时候，完全不懂日语。困难的时候，邻居阿姨总是帮助我。去购物的时候，陪我一起去。空闲的时候，给我做日本料理。如果没有阿姨的话，在日本的生活应该会更加辛苦吧。',
+        question: 'この文章で使われている文法はどれですか。',
+        choices: [
+          '「〜たら」だけ',
+          '「〜とき」と「〜てくれます」と「〜たら」',
+          '「〜ても」だけ',
+          '「〜と」と「〜てあげます」',
+        ],
+        correctIndex: 1,
+      },
+    },
+    {
+      type: 'boss',
+      subType: 'grammar_check',
+      question: {
+        type: 'grammar_check',
+        prompt: '以下哪句话包含了错误的语法？',
+        sentences: [
+          '暇なとき、友だちに会います。忙しくても、毎日日本語を勉強します。',
+          '子どものとき、よく川で泳ぎました。大人になったら、泳がなくなりました。',
+          '春になると、桜が咲きます。雨が降るても、花見をします。',
+        ],
+        correctIndex: 2,
+        explanation: '「降るても」是错误的。动词的「〜ても」要用て形：「降る」→「降って」＋「も」＝「降っても」。',
+      },
+    },
+    {
+      type: 'boss',
+      subType: 'assembly',
+      question: {
+        type: 'assembly',
+        meaning: '如果来日本的话，请来我家玩。',
+        blocks: ['遊びに', '来たら', '日本に', '来てください', 'うちに'],
+        correctOrder: ['日本に', '来たら', 'うちに', '遊びに', '来てください'],
+      },
+    },
+  ],
+};

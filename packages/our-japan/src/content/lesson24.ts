@@ -1,0 +1,435 @@
+import { LessonDef } from '../types';
+
+// Lesson 24: 〜てあげます/もらいます/くれます (Giving/receiving actions) — TEST
+export const lesson24: LessonDef = {
+  id: 24,
+  title: '第24课 为别人做…/请别人做…/别人为我做…',
+  titleJa: '〜てあげます / 〜てもらいます / 〜てくれます',
+  difficulty: 'synthesis',
+  grammarPoints: [
+    {
+      pattern: 'Vて形 + あげます',
+      meaning: '（我/某人）为别人做某事（施恩）',
+      examples: [
+        { ja: '友だちに日本語を教えてあげます。', zh: '我教朋友日语。（我为朋友做）' },
+        { ja: '母に花を買ってあげました。', zh: '我给妈妈买了花。' },
+      ],
+    },
+    {
+      pattern: 'Vて形 + もらいます',
+      meaning: '请别人为（我/某人）做某事（受恩，主语是受益者）',
+      examples: [
+        { ja: '友だちに日本語を教えてもらいました。', zh: '我请朋友教我日语。（朋友教了我）' },
+        { ja: '田中さんに駅まで送ってもらいました。', zh: '田中送我到了车站。' },
+      ],
+    },
+    {
+      pattern: 'Vて形 + くれます',
+      meaning: '别人为我做某事（说话人是受益者，感谢的语气）',
+      examples: [
+        { ja: '友だちが日本語を教えてくれました。', zh: '朋友教了我日语。（朋友为我做的）' },
+        { ja: '母が弁当を作ってくれました。', zh: '妈妈给我做了便当。' },
+      ],
+    },
+  ],
+  vocab: [
+    { ja: '教える', reading: 'おしえる', zh: '教', example: '日本語を教える' },
+    { ja: '送る', reading: 'おくる', zh: '送', example: '駅まで送る' },
+    { ja: '手伝う', reading: 'てつだう', zh: '帮忙', example: '引っ越しを手伝う' },
+    { ja: '貸す', reading: 'かす', zh: '借出' },
+    { ja: '案内する', reading: 'あんないする', zh: '带路/引导' },
+    { ja: '説明する', reading: 'せつめいする', zh: '说明/解释' },
+    { ja: '修理する', reading: 'しゅうりする', zh: '修理' },
+    { ja: '翻訳する', reading: 'ほんやくする', zh: '翻译' },
+    { ja: '引っ越し', reading: 'ひっこし', zh: '搬家' },
+    { ja: '荷物', reading: 'にもつ', zh: '行李/包裹' },
+    { ja: '道', reading: 'みち', zh: '道路' },
+    { ja: '親切', reading: 'しんせつ', zh: '亲切的' },
+    { ja: '優しい', reading: 'やさしい', zh: '温柔的/体贴的' },
+    { ja: '先輩', reading: 'せんぱい', zh: '前辈' },
+    { ja: '後輩', reading: 'こうはい', zh: '后辈' },
+    { ja: '近所', reading: 'きんじょ', zh: '附近/邻居' },
+  ],
+  vocabQuestions: [
+    { type: 'vocab', prompt: '教える', promptAudio: 'おしえる', choices: ['教', '学', '问', '答'], correctIndex: 0 },
+    { type: 'vocab', prompt: '送る', promptAudio: 'おくる', choices: ['接', '送', '迎', '带'], correctIndex: 1 },
+    { type: 'vocab', prompt: '手伝う', promptAudio: 'てつだう', choices: ['邀请', '拒绝', '帮忙', '打扰'], correctIndex: 2 },
+    { type: 'vocab', prompt: '貸す', promptAudio: 'かす', choices: ['借入', '还', '买', '借出'], correctIndex: 3 },
+    { type: 'vocab', prompt: '案内する', promptAudio: 'あんないする', choices: ['带路/引导', '迷路', '出发', '到达'], correctIndex: 0 },
+    { type: 'vocab', prompt: '説明する', promptAudio: 'せつめいする', choices: ['提问', '说明/解释', '回答', '翻译'], correctIndex: 1 },
+    { type: 'vocab', prompt: '修理する', promptAudio: 'しゅうりする', choices: ['制造', '破坏', '修理', '清洗'], correctIndex: 2 },
+    { type: 'vocab', prompt: '翻訳する', promptAudio: 'ほんやくする', choices: ['写作', '阅读', '出版', '翻译'], correctIndex: 3 },
+    { type: 'vocab', prompt: '引っ越し', promptAudio: 'ひっこし', choices: ['搬家', '旅行', '出差', '散步'], correctIndex: 0 },
+    { type: 'vocab', prompt: '荷物', promptAudio: 'にもつ', choices: ['礼物', '行李/包裹', '信件', '食物'], correctIndex: 1 },
+    { type: 'vocab', prompt: '道', promptAudio: 'みち', choices: ['桥', '河', '道路', '山'], correctIndex: 2 },
+    { type: 'vocab', prompt: '親切', promptAudio: 'しんせつ', choices: ['冷淡的', '严格的', '忙碌的', '亲切的'], correctIndex: 3 },
+    { type: 'vocab', prompt: '優しい', promptAudio: 'やさしい', choices: ['温柔的/体贴的', '严厉的', '冷酷的', '懒惰的'], correctIndex: 0 },
+    { type: 'vocab', prompt: '先輩', promptAudio: 'せんぱい', choices: ['同学', '前辈', '后辈', '老师'], correctIndex: 1 },
+    { type: 'vocab', prompt: '後輩', promptAudio: 'こうはい', choices: ['前辈', '老师', '后辈', '同事'], correctIndex: 2 },
+    { type: 'vocab', prompt: '近所', promptAudio: 'きんじょ', choices: ['远方', '外国', '公司', '附近/邻居'], correctIndex: 3 },
+  ],
+  assemblyQuestions: [
+    {
+      type: 'assembly',
+      meaning: '我教朋友日语。',
+      blocks: ['教えて', '日本語を', '友だちに', 'あげます'],
+      correctOrder: ['友だちに', '日本語を', '教えて', 'あげます'],
+    },
+    {
+      type: 'assembly',
+      meaning: '我给妈妈买了花。',
+      blocks: ['買って', '母に', 'あげました', '花を'],
+      correctOrder: ['母に', '花を', '買って', 'あげました'],
+    },
+    {
+      type: 'assembly',
+      meaning: '我请朋友教我日语。',
+      blocks: ['教えて', '友だちに', 'もらいました', '日本語を'],
+      correctOrder: ['友だちに', '日本語を', '教えて', 'もらいました'],
+    },
+    {
+      type: 'assembly',
+      meaning: '田中送我到了车站。',
+      blocks: ['送って', 'もらいました', '田中さんに', '駅まで'],
+      correctOrder: ['田中さんに', '駅まで', '送って', 'もらいました'],
+    },
+    {
+      type: 'assembly',
+      meaning: '朋友教了我日语。',
+      blocks: ['教えて', '友だちが', 'くれました', '日本語を'],
+      correctOrder: ['友だちが', '日本語を', '教えて', 'くれました'],
+    },
+    {
+      type: 'assembly',
+      meaning: '妈妈给我做了便当。',
+      blocks: ['作って', 'くれました', '弁当を', '母が'],
+      correctOrder: ['母が', '弁当を', '作って', 'くれました'],
+    },
+    {
+      type: 'assembly',
+      meaning: '前辈帮我搬了行李。',
+      blocks: ['くれました', '先輩が', '荷物を', '運んで'],
+      correctOrder: ['先輩が', '荷物を', '運んで', 'くれました'],
+    },
+    {
+      type: 'assembly',
+      meaning: '我帮后辈说明了工作内容。',
+      blocks: ['説明して', '後輩に', 'あげました', '仕事の内容を'],
+      correctOrder: ['後輩に', '仕事の内容を', '説明して', 'あげました'],
+    },
+    {
+      type: 'assembly',
+      meaning: '我请邻居修理了自行车。',
+      blocks: ['修理して', '自転車を', 'もらいました', '近所の人に'],
+      correctOrder: ['近所の人に', '自転車を', '修理して', 'もらいました'],
+    },
+    {
+      type: 'assembly',
+      meaning: '课长为我翻译了资料。',
+      blocks: ['翻訳して', '課長が', '資料を', 'くれました'],
+      correctOrder: ['課長が', '資料を', '翻訳して', 'くれました'],
+    },
+    {
+      type: 'assembly',
+      meaning: '我借了伞给朋友。',
+      blocks: ['貸して', '友だちに', 'あげました', '傘を'],
+      correctOrder: ['友だちに', '傘を', '貸して', 'あげました'],
+    },
+  ],
+  grammarCheckQuestions: [
+    {
+      type: 'grammar_check',
+      prompt: '哪句正确表达"我教朋友日语"（我为朋友做）？',
+      sentences: [
+        '友だちに日本語を教えてあげます。',
+        '友だちに日本語を教えてもらいます。',
+        '友だちに日本語を教えてくれます。',
+      ],
+      correctIndex: 0,
+      explanation: '「〜てあげます」表示"我为别人做某事"。施恩方（我）是主语。',
+    },
+    {
+      type: 'grammar_check',
+      prompt: '哪句正确表达"朋友教了我日语"（朋友主动为我做，含感谢）？',
+      sentences: [
+        '友だちが日本語を教えてあげました。',
+        '友だちが日本語を教えてもらいました。',
+        '友だちが日本語を教えてくれました。',
+      ],
+      correctIndex: 2,
+      explanation: '「〜てくれます」表示"别人为我做某事"，主语是做事的人（朋友），暗含感谢。',
+    },
+    {
+      type: 'grammar_check',
+      prompt: '哪句正确表达"我请田中送我到车站"（我是受益者）？',
+      sentences: [
+        '田中さんに駅まで送ってあげました。',
+        '田中さんに駅まで送ってもらいました。',
+        '田中さんが駅まで送ってもらいました。',
+      ],
+      correctIndex: 1,
+      explanation: '「〜てもらいます」表示"请别人为我做某事"。助词用「に」标记做事的人。',
+    },
+    {
+      type: 'grammar_check',
+      prompt: '以下哪句话是错误的？',
+      sentences: [
+        '母が弁当を作ってくれました。',
+        '私が母に弁当を作ってあげました。',
+        '私が母に弁当を作ってくれました。',
+      ],
+      correctIndex: 2,
+      explanation: '「〜てくれます」的主语必须是"别人"（不能是"我"）。"我为妈妈做"应该用「〜てあげました」。',
+    },
+    {
+      type: 'grammar_check',
+      prompt: '哪句正确使用了「〜てもらいます」？',
+      sentences: [
+        '先生が漢字を教えてもらいました。',
+        '先生に漢字を教えてもらいました。',
+        '先生を漢字に教えてもらいました。',
+      ],
+      correctIndex: 1,
+      explanation: '「〜てもらいます」中，做事的人用「に」标记。"请老师教我"→「先生に教えてもらう」。',
+    },
+    {
+      type: 'grammar_check',
+      prompt: '哪句正确表达"前辈为我带路了"（含感谢语气）？',
+      sentences: [
+        '先輩が道を案内してくれました。',
+        '先輩に道を案内してくれました。',
+        '先輩が道を案内してあげました。',
+      ],
+      correctIndex: 0,
+      explanation: '「〜てくれました」中，做事的人（前辈）用「が」做主语。含有感谢的语气。',
+    },
+    {
+      type: 'grammar_check',
+      prompt: '想对不太亲密的人说"我帮你拿行李"，哪种说法比较合适？',
+      sentences: [
+        '荷物を持ってあげましょうか。',
+        '荷物を持ってもらいましょうか。',
+        '荷物を持ってくれましょうか。',
+      ],
+      correctIndex: 0,
+      explanation: '「Vてあげましょうか」表示"我来帮你做…吧？"。注意对不太亲的人用「〜てあげる」有时可能显得居高临下，但「ましょうか」缓和了语气。',
+    },
+    {
+      type: 'grammar_check',
+      prompt: '哪句正确区分了「くれます」和「もらいます」？',
+      sentences: [
+        '山田さんが写真を撮ってくれました。（山田主动为我拍了照）',
+        '山田さんが写真を撮ってもらいました。（山田主动为我拍了照）',
+        '山田さんに写真を撮ってくれました。（我请山田拍了照）',
+      ],
+      correctIndex: 0,
+      explanation: '「くれました」= 别人主动为我做，主语用「が」。「もらいました」= 我请别人做，对方用「に」。',
+    },
+  ],
+  dialogueQuestions: [
+    {
+      type: 'dialogue',
+      context: '搬家时，朋友来帮忙了。',
+      lines: [
+        { speaker: '自分', text: '引っ越しのとき、だれが手伝ってくれましたか。' },
+        { speaker: '友人', text: '___', isBlank: true },
+      ],
+      choices: [
+        '田中さんが手伝ってくれました。',
+        '田中さんに手伝ってくれました。',
+        '田中さんが手伝ってあげました。',
+      ],
+      correctIndex: 0,
+    },
+    {
+      type: 'dialogue',
+      context: '同事在感谢前辈的帮助。',
+      lines: [
+        { speaker: '同僚A', text: 'レポートは大変でしたか。' },
+        { speaker: '同僚B', text: 'はい。でも、___。', isBlank: true },
+      ],
+      choices: [
+        '先輩がいろいろ教えてくれました',
+        '先輩にいろいろ教えてあげました',
+        '先輩がいろいろ教えてあげました',
+      ],
+      correctIndex: 0,
+    },
+    {
+      type: 'dialogue',
+      context: '母亲问孩子今天在学校发生了什么。',
+      lines: [
+        { speaker: '母', text: '今日、学校で何がありましたか。' },
+        { speaker: '子ども', text: '___', isBlank: true },
+      ],
+      choices: [
+        '友だちにノートを貸してもらいました。',
+        '友だちがノートを貸してもらいました。',
+        '友だちにノートを貸してくれました。',
+      ],
+      correctIndex: 0,
+    },
+    {
+      type: 'dialogue',
+      context: '朋友不知道路，你想帮忙。',
+      lines: [
+        { speaker: '友人', text: '道がわかりません。困りました。' },
+        { speaker: '自分', text: '___', isBlank: true },
+      ],
+      choices: [
+        '私が案内してもらいましょうか。',
+        '私が案内してあげましょうか。',
+        '私が案内してくれましょうか。',
+      ],
+      correctIndex: 1,
+    },
+    {
+      type: 'dialogue',
+      context: '在公司，后辈来请求帮忙。',
+      lines: [
+        { speaker: '後輩', text: 'すみません、この漢字の読み方を___。', isBlank: true },
+        { speaker: '先輩', text: 'いいですよ。これは「翻訳」と読みます。' },
+      ],
+      choices: [
+        '教えてあげませんか',
+        '教えてもらえませんか',
+        '教えてくれてください',
+      ],
+      correctIndex: 1,
+    },
+    {
+      type: 'dialogue',
+      context: '跟朋友说妈妈为自己做了什么。',
+      lines: [
+        { speaker: '友人', text: 'いいお弁当ですね。' },
+        { speaker: '自分', text: 'ありがとう。___。', isBlank: true },
+      ],
+      choices: [
+        '母が作ってくれました',
+        '母に作ってあげました',
+        '母が作ってもらいました',
+      ],
+      correctIndex: 0,
+    },
+    {
+      type: 'dialogue',
+      context: '请邻居帮忙修理东西。',
+      lines: [
+        { speaker: '自分', text: '近所の山田さんに___。', isBlank: true },
+        { speaker: '友人', text: 'いい人ですね。' },
+      ],
+      choices: [
+        '自転車を修理してあげました',
+        '自転車を修理してくれました',
+        '自転車を修理してもらいました',
+      ],
+      correctIndex: 2,
+    },
+  ],
+  bossQuestions: [
+    {
+      type: 'boss',
+      subType: 'reading',
+      question: {
+        type: 'reading',
+        passage: '先週、引っ越しをしました。友だちの田中さんが荷物を運んでくれました。山田さんには車で送ってもらいました。私は田中さんにお礼にご飯を作ってあげました。みんな親切で、とても助かりました。',
+        passageZh: '上周搬了家。朋友田中帮我搬了行李。山田开车送了我。我给田中做了饭作为感谢。大家都很亲切，真是帮了大忙。',
+        question: '筆者は田中さんに何をしてあげましたか。',
+        choices: [
+          '荷物を運んであげました。',
+          '車で送ってあげました。',
+          'ご飯を作ってあげました。',
+          '引っ越しを手伝ってあげました。',
+        ],
+        correctIndex: 2,
+      },
+    },
+    {
+      type: 'boss',
+      subType: 'grammar_check',
+      question: {
+        type: 'grammar_check',
+        prompt: '以下三句话，哪句的助词使用是正确的？',
+        sentences: [
+          '友だちが本を貸してくれました。',
+          '友だちが本を貸してもらいました。',
+          '友だちを本に貸してくれました。',
+        ],
+        correctIndex: 0,
+        explanation: '「〜てくれました」的主语用「が」。朋友借给我→「友だちが貸してくれました」。',
+      },
+    },
+    {
+      type: 'boss',
+      subType: 'assembly',
+      question: {
+        type: 'assembly',
+        meaning: '我请老师帮我检查了作文。',
+        blocks: ['先生に', 'もらいました', '見て', '作文を'],
+        correctOrder: ['先生に', '作文を', '見て', 'もらいました'],
+      },
+    },
+    {
+      type: 'boss',
+      subType: 'vocab',
+      question: {
+        type: 'vocab',
+        prompt: '案内する',
+        promptAudio: 'あんないする',
+        choices: ['带路/引导', '迷路', '散步', '出发'],
+        correctIndex: 0,
+      },
+    },
+    {
+      type: 'boss',
+      subType: 'dialogue',
+      question: {
+        type: 'dialogue',
+        context: '感谢别人的帮助。',
+        lines: [
+          { speaker: 'A', text: '昨日はありがとうございました。' },
+          { speaker: 'B', text: '何のことですか。' },
+          { speaker: 'A', text: '___。本当に助かりました。', isBlank: true },
+        ],
+        choices: [
+          '荷物を持ってくれたでしょう',
+          '荷物を持ってあげたでしょう',
+          '荷物を持ってもらったでしょう',
+        ],
+        correctIndex: 0,
+      },
+    },
+    {
+      type: 'boss',
+      subType: 'reading',
+      question: {
+        type: 'reading',
+        passage: '日本では、お中元やお歳暮の習慣があります。お世話になった人にプレゼントを送ってあげます。もらった人は必ずお礼の手紙を書きます。このように、日本人は「あげる」と「もらう」の関係をとても大切にしています。',
+        passageZh: '日本有中元节和岁暮送礼的习惯。给关照过自己的人送礼物。收到的人一定会写感谢信。像这样，日本人非常重视"给予"和"接受"的关系。',
+        question: 'もらった人は何をしますか。',
+        choices: [
+          'プレゼントを返します。',
+          'お礼の手紙を書きます。',
+          'お金を送ります。',
+          '電話をかけます。',
+        ],
+        correctIndex: 1,
+      },
+    },
+    {
+      type: 'boss',
+      subType: 'grammar_check',
+      question: {
+        type: 'grammar_check',
+        prompt: '哪句话最自然地表达了"妈妈做了很好吃的饭给我"？',
+        sentences: [
+          '母がおいしい料理を作ってくれました。',
+          '母におい しい料理を作ってもらいました。',
+          '母がおいしい料理を作ってあげました。',
+        ],
+        correctIndex: 0,
+        explanation: '说妈妈主动为我做饭，含感谢语气，最自然的是用「〜てくれました」。「あげました」暗示"我帮妈妈做"，方向反了。',
+      },
+    },
+  ],
+};
