@@ -511,6 +511,7 @@ export class GameState {
     const isPet = this.petAlive && this.pet.x === nx && this.pet.y === ny;
     if (monster && monster.nameId === "shopkeeper") {
       this.msg(t("shopkeeperGreet"), "system");
+      return; // Bumping shopkeeper doesn't cost a turn
     } else if (monster) {
       this.animations.addFlash(monster.x, monster.y, "#ff0000");
       this.combat(this.player, monster);
@@ -539,6 +540,8 @@ export class GameState {
 
       this.processTrap(nx, ny);
       this.checkAutoPickUp(nx, ny);
+    } else {
+      return; // Wall/impassable — no turn consumed
     }
 
     this.endTurn();
@@ -1753,6 +1756,7 @@ export class GameState {
     }
 
     for (const m of this.monsters) {
+      if (m.nameId === "shopkeeper") continue;
       if (!this.cells[m.y][m.x].visible) continue;
 
       // Stunned: skip turn

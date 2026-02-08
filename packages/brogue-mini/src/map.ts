@@ -208,7 +208,7 @@ export function generateDungeon(depth = 1, ascending = false): DungeonResult {
     }
   }
 
-  // Scatter deep water pools (depth 4+)
+  // Scatter deep water pools (depth 4+) — only in open areas to avoid blocking corridors
   if (depth >= 4) {
     for (let i = 0; i < rand(1, 2); i++) {
       const cx = rand(3, MAP_W - 4);
@@ -218,7 +218,13 @@ export function generateDungeon(depth = 1, ascending = false): DungeonResult {
         for (let dx = -r; dx <= r; dx++) {
           const nx = cx + dx, ny = cy + dy;
           if (ny > 0 && ny < MAP_H - 1 && nx > 0 && nx < MAP_W - 1) {
-            if (cells[ny][nx].tile === Tile.Floor && Math.random() < 0.4) {
+            if (cells[ny][nx].tile !== Tile.Floor) continue;
+            // Only place if tile has 3+ passable orthogonal neighbors (not in corridors)
+            let open = 0;
+            for (const [ddx, ddy] of [[-1,0],[1,0],[0,-1],[0,1]]) {
+              if (cells[ny + ddy][nx + ddx].tile !== Tile.Wall) open++;
+            }
+            if (open >= 3 && Math.random() < 0.4) {
               cells[ny][nx].tile = Tile.DeepWater;
             }
           }

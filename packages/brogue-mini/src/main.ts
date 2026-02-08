@@ -163,10 +163,9 @@ document.addEventListener("keydown", (e) => {
 
   // --- Buy confirmation ---
   if (game.pendingBuy) {
-    if (e.key === "y" || e.key === "Y") game.confirmBuy();
-    else if (e.key === "n" || e.key === "N" || e.key === "Escape") game.declineBuy();
-    e.preventDefault();
-    return;
+    if (e.key === "y" || e.key === "Y") { game.confirmBuy(); e.preventDefault(); return; }
+    // Any other key auto-declines and falls through to normal handling
+    game.declineBuy();
   }
 
   // --- Level up selection ---
