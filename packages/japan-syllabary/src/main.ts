@@ -3,15 +3,32 @@ import { render, W, H, HitArea } from './render';
 import { ensureAudioContext } from './audio';
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;
-const ctx = canvas.getContext('2d')!;
+let ctx = canvas.getContext('2d')!;
 
-// HiDPI support
-const dpr = window.devicePixelRatio || 1;
-canvas.width = W * dpr;
-canvas.height = H * dpr;
-canvas.style.width = `${W}px`;
-canvas.style.height = `${H}px`;
-ctx.scale(dpr, dpr);
+function resizeCanvas() {
+  const dpr = window.devicePixelRatio || 1;
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const aspect = W / H;
+
+  let cssW = vw;
+  let cssH = cssW / aspect;
+  if (cssH > vh) {
+    cssH = vh;
+    cssW = cssH * aspect;
+  }
+
+  canvas.style.width = cssW + 'px';
+  canvas.style.height = cssH + 'px';
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
+  ctx = canvas.getContext('2d')!;
+  ctx.scale(dpr, dpr);
+}
+
+resizeCanvas();
+window.addEventListener('resize', resizeCanvas);
+window.addEventListener('orientationchange', () => setTimeout(resizeCanvas, 100));
 
 const game = new GameState();
 let hitAreas: HitArea[] = [];

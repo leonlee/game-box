@@ -28,6 +28,7 @@ const strings = {
   youWin: { en: "YOU WIN!", zh: "你赢了！" },
   youDiedTitle: { en: "YOU DIED", zh: "你死了" },
   pressR: { en: "Press R to restart", zh: "按R重新开始" },
+  pressRMobile: { en: "Tap to restart", zh: "点击重新开始" },
   hp: { en: "HP", zh: "生命" },
   atk: { en: "ATK", zh: "攻击" },
   def: { en: "DEF", zh: "防御" },

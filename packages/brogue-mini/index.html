@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <title>Brogue Mini</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -9,18 +10,89 @@
       background: #000;
       display: flex;
       justify-content: center;
-      align-items: center;
+      align-items: flex-start;
       min-height: 100vh;
       flex-direction: column;
+      touch-action: none;
+      overflow: hidden;
     }
     canvas {
       border: 1px solid #1a1a2e;
+      max-width: 100%;
+      display: block;
+      margin: 0 auto;
     }
     .controls {
       color: #555;
       font: 12px monospace;
       margin-top: 8px;
       text-align: center;
+      width: 100%;
+    }
+    /* Touch controls container */
+    #touch-controls {
+      display: none;
+      width: 100%;
+      max-width: 800px;
+      margin: 4px auto 0;
+      padding: 0 4px;
+      gap: 8px;
+      justify-content: space-between;
+      align-items: center;
+    }
+    #touch-controls.visible {
+      display: flex;
+    }
+    /* D-pad grid */
+    .dpad {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 3px;
+      flex-shrink: 0;
+    }
+    .dpad button {
+      width: 48px;
+      height: 48px;
+      border: 1px solid #333;
+      background: rgba(30, 30, 50, 0.85);
+      color: #aaa;
+      font: bold 14px monospace;
+      border-radius: 6px;
+      touch-action: none;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+    .dpad button:active {
+      background: rgba(60, 60, 100, 0.9);
+      color: #fff;
+    }
+    .dpad button.center-btn {
+      background: rgba(50, 50, 80, 0.85);
+      color: #888;
+    }
+    /* Action buttons */
+    .actions {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 3px;
+      flex-shrink: 0;
+    }
+    .actions button {
+      min-width: 56px;
+      height: 48px;
+      border: 1px solid #333;
+      background: rgba(30, 30, 50, 0.85);
+      color: #aaa;
+      font: bold 11px monospace;
+      border-radius: 6px;
+      touch-action: none;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+      padding: 0 6px;
+    }
+    .actions button:active {
+      background: rgba(60, 60, 100, 0.9);
+      color: #fff;
     }
   </style>
 </head>
@@ -32,6 +104,25 @@
     Wait: space &nbsp;|&nbsp;
     Restart: r &nbsp;|&nbsp;
     Language: F1
+  </div>
+  <div id="touch-controls">
+    <div class="dpad">
+      <button data-dir="-1,-1">&#x2196;</button>
+      <button data-dir="0,-1">&#x2191;</button>
+      <button data-dir="1,-1">&#x2197;</button>
+      <button data-dir="-1,0">&#x2190;</button>
+      <button class="center-btn" data-action="wait">&#x23F8;</button>
+      <button data-dir="1,0">&#x2192;</button>
+      <button data-dir="-1,1">&#x2199;</button>
+      <button data-dir="0,1">&#x2193;</button>
+      <button data-dir="1,1">&#x2198;</button>
+    </div>
+    <div class="actions">
+      <button data-action="stairs">&#x25B7; Stairs</button>
+      <button data-action="inventory">&#x25A1; Inv</button>
+      <button data-action="pickup">&#x25CB; Pick</button>
+      <button data-action="auto">&#x25B6; Auto</button>
+    </div>
   </div>
   <script src="dist/game.js"></script>
 </body>

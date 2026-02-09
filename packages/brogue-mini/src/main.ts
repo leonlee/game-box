@@ -1,10 +1,10 @@
 import { GameState } from "./game";
-import { initCanvas, render, toggleHelp, nextHelpPage, showHelp } from "./render";
+import { initCanvas, render, toggleHelp, nextHelpPage, showHelp, CANVAS_W, CANVAS_H, overlayHitAreas } from "./render";
 import { toggleLang } from "./i18n";
 import { hasSave, loadGame, addLeaderboardEntry } from "./save";
 
 const canvas = document.getElementById("game") as HTMLCanvasElement;
-const ctx = initCanvas(canvas);
+let ctx = initCanvas(canvas);
 const game = new GameState();
 
 // Try loading a saved game
@@ -18,6 +18,51 @@ let throwIndex = -1;
 let dashMode = false;
 let gameOverRecorded = false; // track if we've saved to leaderboard
 
+// --- Touch detection ---
+function isTouchDevice(): boolean {
+  return "ontouchstart" in window || navigator.maxTouchPoints > 0;
+}
+
+// --- Responsive canvas ---
+function resizeCanvas() {
+  const dpr = window.devicePixelRatio || 1;
+  const isTouch = isTouchDevice();
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+
+  // On touch devices, reserve bottom portion for controls
+  const controlsHeight = isTouch ? 120 : 0;
+  const availH = vh - controlsHeight;
+  const aspect = CANVAS_W / CANVAS_H;
+
+  let cssW = vw;
+  let cssH = cssW / aspect;
+
+  if (cssH > availH) {
+    cssH = availH;
+    cssW = cssH * aspect;
+  }
+
+  canvas.style.width = cssW + "px";
+  canvas.style.height = cssH + "px";
+  canvas.width = CANVAS_W * dpr;
+  canvas.height = CANVAS_H * dpr;
+
+  ctx = canvas.getContext("2d")!;
+  ctx.scale(dpr, dpr);
+
+  // Show/hide controls based on device
+  const touchControls = document.getElementById("touch-controls");
+  const kbControls = document.querySelector(".controls") as HTMLElement | null;
+  if (touchControls) touchControls.classList.toggle("visible", isTouch);
+  if (kbControls) kbControls.style.display = isTouch ? "none" : "";
+}
+
+resizeCanvas();
+window.addEventListener("resize", resizeCanvas);
+window.addEventListener("orientationchange", () => setTimeout(resizeCanvas, 100));
+
+// --- Auto-explore ---
 function stopAuto() {
   if (autoTimer !== null) {
     clearInterval(autoTimer);
@@ -49,15 +94,173 @@ function recordGameOver() {
   });
 }
 
-function draw() {
-  // Record leaderboard entry on game over
-  if (game.gameOver && !gameOverRecorded) {
-    recordGameOver();
+// --- Shared action handlers for keyboard + touch ---
+
+function handleDirection(dx: number, dy: number) {
+  if (dashMode) {
+    game.useDash(dx, dy);
+    dashMode = false;
+    return;
   }
-  render(ctx, game);
-  requestAnimationFrame(draw);
+  if (throwMode) {
+    game.throwItem(throwIndex, dx, dy);
+    throwMode = false;
+    return;
+  }
+  if (game.showInventory) {
+    // Up/down for cursor
+    if (dy === -1 && dx === 0) {
+      if (game.inventoryCursor > 0) game.inventoryCursor--;
+    } else if (dy === 1 && dx === 0) {
+      if (game.inventoryCursor < game.inventory.items.length - 1) game.inventoryCursor++;
+    }
+    return;
+  }
+  if (game.autoExploring) {
+    stopAuto();
+    return;
+  }
+  if (game.gameOver) return;
+  game.tryMove(dx, dy);
 }
 
+function handleAction(action: string) {
+  switch (action) {
+    case "wait":
+      if (game.autoExploring) { stopAuto(); return; }
+      if (game.gameOver) return;
+      game.wait();
+      break;
+    case "stairs":
+      if (game.gameOver) return;
+      // Try both directions - the game will show appropriate message if no stairs
+      game.tryDescend();
+      game.tryAscend();
+      break;
+    case "inventory":
+      if (game.gameOver) return;
+      if (game.showInventory) {
+        game.showInventory = false;
+      } else {
+        game.showInventory = true;
+        game.inventoryCursor = 0;
+      }
+      break;
+    case "pickup":
+      if (game.gameOver) return;
+      game.tryPickUp();
+      break;
+    case "auto":
+      if (game.gameOver) return;
+      if (!game.autoExploring) startAuto();
+      else stopAuto();
+      break;
+    case "invUse": {
+      const items = game.inventory.items;
+      if (items.length > 0) {
+        const item = items[game.inventoryCursor];
+        if (item.type === "throwing") {
+          throwMode = true;
+          throwIndex = game.inventoryCursor;
+          game.showInventory = false;
+        } else {
+          game.useItem(game.inventoryCursor);
+        }
+      }
+      break;
+    }
+    case "invDrop":
+      if (game.inventory.items.length > 0) {
+        game.dropItem(game.inventoryCursor);
+      }
+      break;
+    case "invClose":
+      game.showInventory = false;
+      break;
+    case "restart":
+      game.restart();
+      gameOverRecorded = false;
+      break;
+    case "levelup":
+      // data handled separately via handleOverlayAction
+      break;
+    case "helpClose":
+      toggleHelp();
+      break;
+    case "helpPage":
+      nextHelpPage();
+      break;
+    case "buyYes":
+      if (game.pendingBuy) game.confirmBuy();
+      break;
+    case "buyNo":
+      if (game.pendingBuy) game.declineBuy();
+      break;
+  }
+}
+
+// --- Touch controls setup ---
+function setupTouchControls() {
+  const container = document.getElementById("touch-controls");
+  if (!container) return;
+
+  // D-pad buttons
+  container.querySelectorAll("[data-dir]").forEach((btn) => {
+    btn.addEventListener("touchstart", (e) => {
+      e.preventDefault();
+      const dir = (btn as HTMLElement).dataset.dir!;
+      const [dx, dy] = dir.split(",").map(Number);
+      handleDirection(dx, dy);
+    }, { passive: false });
+  });
+
+  // Action buttons
+  container.querySelectorAll("[data-action]").forEach((btn) => {
+    btn.addEventListener("touchstart", (e) => {
+      e.preventDefault();
+      const action = (btn as HTMLElement).dataset.action!;
+      handleAction(action);
+    }, { passive: false });
+  });
+}
+
+setupTouchControls();
+
+// --- Canvas touch handler for overlays ---
+function getCanvasCoords(clientX: number, clientY: number): { x: number; y: number } {
+  const rect = canvas.getBoundingClientRect();
+  return {
+    x: (clientX - rect.left) * (CANVAS_W / rect.width),
+    y: (clientY - rect.top) * (CANVAS_H / rect.height),
+  };
+}
+
+canvas.addEventListener("touchstart", (e) => {
+  e.preventDefault();
+  const touch = e.touches[0];
+  const { x, y } = getCanvasCoords(touch.clientX, touch.clientY);
+
+  // Hit test against overlay areas (reverse order for z-ordering)
+  for (let i = overlayHitAreas.length - 1; i >= 0; i--) {
+    const area = overlayHitAreas[i];
+    if (x >= area.x && x <= area.x + area.w && y >= area.y && y <= area.y + area.h) {
+      if (area.action === "levelup" && area.data !== undefined) {
+        game.applyLevelUp(area.data);
+      } else if (area.action === "invUse" && area.data !== undefined) {
+        game.inventoryCursor = area.data;
+        handleAction("invUse");
+      } else if (area.action === "invDrop" && area.data !== undefined) {
+        game.inventoryCursor = area.data;
+        handleAction("invDrop");
+      } else {
+        handleAction(area.action);
+      }
+      return;
+    }
+  }
+}, { passive: false });
+
+// --- Keyboard handler ---
 document.addEventListener("keydown", (e) => {
   if (e.key === "F1") {
     toggleLang();
@@ -286,5 +489,15 @@ document.addEventListener("keydown", (e) => {
 
   if (handled) e.preventDefault();
 });
+
+// --- Draw loop ---
+function draw() {
+  // Record leaderboard entry on game over
+  if (game.gameOver && !gameOverRecorded) {
+    recordGameOver();
+  }
+  render(ctx, game);
+  requestAnimationFrame(draw);
+}
 
 draw();

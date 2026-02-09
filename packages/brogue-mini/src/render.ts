@@ -19,8 +19,19 @@ const MSG_COLORS: Record<MsgType, string> = {
   info: "#5599cc",
 };
 
-const CANVAS_W = 800;
-const CANVAS_H = 608;
+export const CANVAS_W = 800;
+export const CANVAS_H = 608;
+
+export interface OverlayHitArea {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  action: string;
+  data?: number;
+}
+
+export let overlayHitAreas: OverlayHitArea[] = [];
 const CELL_W = 10;
 const CELL_H = 18;
 const MAP_OX = Math.floor((CANVAS_W - MAP_W * CELL_W) / 2);
@@ -101,6 +112,7 @@ export function nextHelpPage() {
 }
 
 export function render(ctx: CanvasRenderingContext2D, game: GameState) {
+  overlayHitAreas = [];
   ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
@@ -205,6 +217,14 @@ export function render(ctx: CanvasRenderingContext2D, game: GameState) {
     ctx.font = SUB_FONT;
     ctx.fillStyle = "#ccc";
     ctx.fillText("1: +5 HP   2: +1 ATK   3: +1 DEF", CANVAS_W / 2, MAP_H_PX / 2 + 16);
+
+    // Touch hit areas for level-up choices
+    const luY = MAP_H_PX / 2 + 4;
+    const luW = 120;
+    const luH = 24;
+    overlayHitAreas.push({ x: CANVAS_W / 2 - 180, y: luY, w: luW, h: luH, action: "levelup", data: 0 });
+    overlayHitAreas.push({ x: CANVAS_W / 2 - 50, y: luY, w: luW, h: luH, action: "levelup", data: 1 });
+    overlayHitAreas.push({ x: CANVAS_W / 2 + 80, y: luY, w: luW, h: luH, action: "levelup", data: 2 });
     return;
   }
 
@@ -244,6 +264,9 @@ export function render(ctx: CanvasRenderingContext2D, game: GameState) {
     ctx.font = SUB_FONT;
     ctx.fillStyle = "#888";
     ctx.fillText(t("pressR"), CANVAS_W / 2, MAP_H_PX - 30);
+
+    // Touch hit area: tap anywhere in the overlay to restart
+    overlayHitAreas.push({ x: 0, y: 0, w: CANVAS_W, h: MAP_H_PX, action: "restart" });
   }
 }
 
@@ -327,6 +350,10 @@ function renderHelp(ctx: CanvasRenderingContext2D) {
   ctx.textAlign = "center";
   ctx.fillStyle = "#666";
   ctx.fillText(t("helpClose"), CANVAS_W / 2, by + boxH - 16);
+
+  // Touch hit areas: tap left half to close, right half to switch page
+  overlayHitAreas.push({ x: bx, y: by, w: boxW / 2, h: boxH, action: "helpClose" });
+  overlayHitAreas.push({ x: bx + boxW / 2, y: by, w: boxW / 2, h: boxH, action: "helpPage" });
 }
 
 function renderInventory(ctx: CanvasRenderingContext2D, game: GameState) {
@@ -431,6 +458,18 @@ function renderInventory(ctx: CanvasRenderingContext2D, game: GameState) {
   ctx.textAlign = "center";
   ctx.fillStyle = "#666";
   ctx.fillText(t("inventoryHint"), CANVAS_W / 2, by + boxH - 16);
+
+  // Touch hit areas for inventory items (use = tap left 2/3, drop = tap right 1/3)
+  if (game.inventory.items.length > 0) {
+    const itemStartY = by + 114; // approximate start of item list
+    for (let i = 0; i < game.inventory.items.length; i++) {
+      const iy = itemStartY + i * 20 - 4;
+      overlayHitAreas.push({ x: bx + 16, y: iy, w: (boxW - 32) * 0.67, h: 20, action: "invUse", data: i });
+      overlayHitAreas.push({ x: bx + 16 + (boxW - 32) * 0.67, y: iy, w: (boxW - 32) * 0.33, h: 20, action: "invDrop", data: i });
+    }
+  }
+  // Tap outside items to close
+  overlayHitAreas.push({ x: bx, y: by + boxH - 30, w: boxW, h: 30, action: "invClose" });
 }
 
 function renderPanel(ctx: CanvasRenderingContext2D, game: GameState) {
@@ -526,6 +565,12 @@ function renderPanel(ctx: CanvasRenderingContext2D, game: GameState) {
   ctx.fillStyle = "#444";
   ctx.textAlign = "right";
   ctx.fillText(`?:${t("helpTitle")}  ${t("langToggle")}`, CANVAS_W - 8, row2Y);
+
+  // Buy confirmation touch areas
+  if (game.pendingBuy) {
+    overlayHitAreas.push({ x: 0, y: PANEL_Y, w: CANVAS_W / 2, h: PANEL_H, action: "buyYes" });
+    overlayHitAreas.push({ x: CANVAS_W / 2, y: PANEL_Y, w: CANVAS_W / 2, h: PANEL_H, action: "buyNo" });
+  }
 }
 
 function renderMinimap(ctx: CanvasRenderingContext2D, game: GameState) {

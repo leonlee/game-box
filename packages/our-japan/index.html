@@ -2,7 +2,7 @@
 <html lang="zh">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <title>我们的日本语 — 文法冒险</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -13,6 +13,7 @@
       align-items: center;
       min-height: 100vh;
       overflow: hidden;
+      touch-action: none;
     }
     canvas {
       border-radius: 8px;
@@ -22,7 +23,7 @@
   </style>
 </head>
 <body>
-  <canvas id="game" width="960" height="640"></canvas>
+  <canvas id="game"></canvas>
   <script src="dist/game.js"></script>
 </body>
 </html>
