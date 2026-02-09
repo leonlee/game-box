@@ -3,6 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <link rel="preconnect" href="https://fonts.gstatic.com">
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
   <title>Brogue Mini</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -24,10 +26,11 @@
     }
     .controls {
       color: #555;
-      font: 12px monospace;
+      font: 8px 'Press Start 2P', monospace;
       margin-top: 8px;
       text-align: center;
       width: 100%;
+      line-height: 1.8;
     }
     /* Touch controls container */
     #touch-controls {
@@ -56,11 +59,12 @@
       border: 1px solid #333;
       background: rgba(30, 30, 50, 0.85);
       color: #aaa;
-      font: bold 14px monospace;
+      font: 16px 'Press Start 2P', monospace;
       border-radius: 6px;
       touch-action: none;
       -webkit-tap-highlight-color: transparent;
       user-select: none;
+      line-height: 48px;
     }
     .dpad button:active {
       background: rgba(60, 60, 100, 0.9);
@@ -83,12 +87,13 @@
       border: 1px solid #333;
       background: rgba(30, 30, 50, 0.85);
       color: #aaa;
-      font: bold 11px monospace;
+      font: 8px 'Press Start 2P', monospace;
       border-radius: 6px;
       touch-action: none;
       -webkit-tap-highlight-color: transparent;
       user-select: none;
       padding: 0 6px;
+      line-height: 1.4;
     }
     .actions button:active {
       background: rgba(60, 60, 100, 0.9);
@@ -107,21 +112,21 @@
   </div>
   <div id="touch-controls">
     <div class="dpad">
-      <button data-dir="-1,-1">&#x2196;</button>
-      <button data-dir="0,-1">&#x2191;</button>
-      <button data-dir="1,-1">&#x2197;</button>
-      <button data-dir="-1,0">&#x2190;</button>
-      <button class="center-btn" data-action="wait">&#x23F8;</button>
-      <button data-dir="1,0">&#x2192;</button>
-      <button data-dir="-1,1">&#x2199;</button>
-      <button data-dir="0,1">&#x2193;</button>
-      <button data-dir="1,1">&#x2198;</button>
+      <button data-dir="-1,-1">\</button>
+      <button data-dir="0,-1">^</button>
+      <button data-dir="1,-1">/</button>
+      <button data-dir="-1,0">&lt;</button>
+      <button class="center-btn" data-action="wait">.</button>
+      <button data-dir="1,0">&gt;</button>
+      <button data-dir="-1,1">/</button>
+      <button data-dir="0,1">v</button>
+      <button data-dir="1,1">\</button>
     </div>
     <div class="actions">
-      <button data-action="stairs">&#x25B7; Stairs</button>
-      <button data-action="inventory">&#x25A1; Inv</button>
-      <button data-action="pickup">&#x25CB; Pick</button>
-      <button data-action="auto">&#x25B6; Auto</button>
+      <button data-action="stairs">&gt; Stair</button>
+      <button data-action="inventory">[ Inv</button>
+      <button data-action="pickup">g Pick</button>
+      <button data-action="auto">x Auto</button>
     </div>
   </div>
   <script src="dist/game.js"></script>
