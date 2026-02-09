@@ -1,3 +1,4 @@
+[![Build & Deploy to GitHub Pages](https://github.com/leonlee/game-box/actions/workflows/deploy.yml/badge.svg)](https://github.com/leonlee/game-box/actions/workflows/deploy.yml)
 # Sandbox Games
 
 浏览器小游戏合集。
