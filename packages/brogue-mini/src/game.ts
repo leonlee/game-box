@@ -974,7 +974,7 @@ export class GameState {
 
     // Attack adjacent monster, or move toward a nearby one
     const adjacent = this.monsters.find(
-      (m) => Math.abs(m.x - this.pet.x) + Math.abs(m.y - this.pet.y) <= 1
+      (m) => m.nameId !== "shopkeeper" && Math.abs(m.x - this.pet.x) + Math.abs(m.y - this.pet.y) <= 1
     );
     if (adjacent) {
       this.petCombat(adjacent);
@@ -983,7 +983,7 @@ export class GameState {
 
     // Seek nearest visible monster within 4 tiles
     const nearby = this.monsters
-      .filter((m) => this.cells[m.y][m.x].visible && Math.abs(m.x - this.pet.x) + Math.abs(m.y - this.pet.y) <= 4)
+      .filter((m) => m.nameId !== "shopkeeper" && this.cells[m.y][m.x].visible && Math.abs(m.x - this.pet.x) + Math.abs(m.y - this.pet.y) <= 4)
       .sort((a, b) => (Math.abs(a.x - this.pet.x) + Math.abs(a.y - this.pet.y)) - (Math.abs(b.x - this.pet.x) + Math.abs(b.y - this.pet.y)));
     if (nearby.length > 0 && dist <= 5) {
       this.movePetToward(nearby[0].x, nearby[0].y);
