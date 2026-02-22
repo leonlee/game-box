@@ -44,9 +44,13 @@ export function loadStore(): ProfileStore {
     const raw = localStorage.getItem(STORE_KEY);
     if (raw) {
       const data = JSON.parse(raw) as ProfileStore;
-      // Ensure progress fields are forward-compatible
+      // Ensure progress fields are forward-compatible (deep-merge nested objects)
       for (const p of data.profiles) {
-        p.progress = { ...defaultProgress(), ...p.progress };
+        p.progress = {
+          ...defaultProgress(),
+          ...p.progress,
+          companion: { ...defaultProgress().companion, ...p.progress.companion },
+        };
       }
       return data;
     }
@@ -112,7 +116,12 @@ export function getActiveProfile(store: ProfileStore): PlayerProfile | null {
 
 export function loadProgress(store: ProfileStore): PlayerProgress {
   const profile = getActiveProfile(store);
-  return profile ? { ...defaultProgress(), ...profile.progress } : defaultProgress();
+  if (!profile) return defaultProgress();
+  return {
+    ...defaultProgress(),
+    ...profile.progress,
+    companion: { ...defaultProgress().companion, ...profile.progress.companion },
+  };
 }
 
 export function saveProgress(store: ProfileStore, progress: PlayerProgress): void {

@@ -431,12 +431,10 @@ function renderInventory(ctx: CanvasRenderingContext2D, game: GameState) {
       if (item.type === "equipment" && item.durability !== undefined && item.maxDurability) {
         const frac = item.durability / item.maxDurability;
         const durColor = frac > 0.5 ? "#2ecc71" : frac > 0.25 ? "#f39c12" : "#e74c3c";
-        label += ` [${item.durability}/${item.maxDurability}]`;
-        // We'll draw the durability part colored separately below
+        const durText = ` [${item.durability}/${item.maxDurability}]`;
+        // Draw base name, then durability in color
         ctx.fillText(label, bx + 42, curY);
-        // Re-draw durability in color
-        const durText = `[${item.durability}/${item.maxDurability}]`;
-        const baseWidth = ctx.measureText(label.replace(durText, "")).width;
+        const baseWidth = ctx.measureText(label).width;
         ctx.fillStyle = durColor;
         ctx.fillText(durText, bx + 42 + baseWidth, curY);
         curY += 20;

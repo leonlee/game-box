@@ -24,6 +24,7 @@ function play(
   gain.connect(ac.destination);
   osc.start(ac.currentTime);
   osc.stop(ac.currentTime + duration);
+  osc.onended = () => { osc.disconnect(); gain.disconnect(); };
 }
 
 function noise(duration: number, volume = 0.08) {
@@ -40,6 +41,7 @@ function noise(duration: number, volume = 0.08) {
   src.connect(gain);
   gain.connect(ac.destination);
   src.start(ac.currentTime);
+  src.onended = () => { src.disconnect(); gain.disconnect(); };
 }
 
 export const sfx = {

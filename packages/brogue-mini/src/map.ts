@@ -146,10 +146,11 @@ export function generateDungeon(depth = 1, ascending = false): DungeonResult {
   const reachable: boolean[][] = [];
   for (let y = 0; y < MAP_H; y++) reachable[y] = new Array(MAP_W).fill(false);
   const floodQ: number[] = [spawnX, spawnY];
+  let fqi = 0;
   reachable[spawnY][spawnX] = true;
-  while (floodQ.length > 0) {
-    const fx = floodQ.shift()!;
-    const fy = floodQ.shift()!;
+  while (fqi < floodQ.length) {
+    const fx = floodQ[fqi++];
+    const fy = floodQ[fqi++];
     for (const [ddx, ddy] of [[-1,0],[1,0],[0,-1],[0,1]]) {
       const nx = fx + ddx, ny = fy + ddy;
       if (nx >= 0 && nx < MAP_W && ny >= 0 && ny < MAP_H && !reachable[ny][nx] && cells[ny][nx].tile !== Tile.Wall && cells[ny][nx].tile !== Tile.DeepWater) {

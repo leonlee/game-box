@@ -77,7 +77,11 @@ export function saveGame(game: GameState): void {
     deadSkeletons: game.deadSkeletons,
     burningTiles: [...game.burningTiles.entries()],
   };
-  localStorage.setItem(SAVE_KEY, JSON.stringify(data));
+  try {
+    localStorage.setItem(SAVE_KEY, JSON.stringify(data));
+  } catch {
+    // localStorage full or unavailable
+  }
 }
 
 export function hasSave(): boolean {

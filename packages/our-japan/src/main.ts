@@ -110,9 +110,17 @@ function processAction(area: HitArea): void {
     case 'answer':
       if (area.data !== undefined) game.answerQuestion(area.data);
       break;
-    case 'add_block':
-      if (area.strData) game.addBlock(area.strData);
+    case 'add_block': {
+      const m = game.module;
+      if (m && area.data !== undefined) {
+        let q = m.questions[m.currentIndex];
+        if (q.type === 'boss') q = (q as any).question;
+        if (q.type === 'assembly') {
+          game.addBlock((q as any).blocks[area.data]);
+        }
+      }
       break;
+    }
     case 'remove_block':
       if (area.data !== undefined) game.removeBlock(area.data);
       break;

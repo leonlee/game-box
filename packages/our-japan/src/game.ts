@@ -195,7 +195,7 @@ export class Game {
       maxCombo: 0,
       finished: false,
       feedback: null,
-      assemblyLine: moduleType === 'sentence_assembly' ? [] : undefined,
+      assemblyLine: (moduleType === 'sentence_assembly' || moduleType === 'boss') ? [] : undefined,
       bossHp: moduleType === 'boss' ? questions.length : undefined,
       bossMaxHp: moduleType === 'boss' ? questions.length : undefined,
     };
@@ -299,7 +299,9 @@ export class Game {
     const m = this.module;
     if (!m || m.finished || m.feedback || !m.assemblyLine) return;
 
-    const q = m.questions[m.currentIndex] as AssemblyQuestion;
+    let rawQ = m.questions[m.currentIndex];
+    if (rawQ.type === 'boss') rawQ = (rawQ as BossQuestion).question;
+    const q = rawQ as AssemblyQuestion;
     const correct = m.assemblyLine.join('') === q.correctOrder.join('');
 
     if (correct) {
@@ -512,7 +514,7 @@ export class Game {
     if (this.screen === 'world') {
       const diff = this.world.targetScrollX - this.world.scrollX;
       if (Math.abs(diff) > 0.5) {
-        this.world.scrollX += diff * 0.1;
+        this.world.scrollX += diff * Math.min(1, 6 * dt);
       }
 
       // Animate clouds

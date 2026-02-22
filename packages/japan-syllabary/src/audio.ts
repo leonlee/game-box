@@ -7,6 +7,7 @@ export function ensureAudioContext(): void {
 
 function getCtx(): AudioContext {
   if (!ctx) ctx = new AudioContext();
+  if (ctx.state === 'suspended') ctx.resume();
   return ctx;
 }
 
@@ -29,6 +30,7 @@ function play(
   gain.connect(ac.destination);
   osc.start(ac.currentTime);
   osc.stop(ac.currentTime + duration);
+  osc.onended = () => { osc.disconnect(); gain.disconnect(); };
 }
 
 export const sfx = {

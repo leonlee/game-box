@@ -34,6 +34,7 @@ const game = new GameState();
 let hitAreas: HitArea[] = [];
 let lastTime = 0;
 let audioInitialized = false;
+let touchHandled = false;
 
 function initAudio() {
   if (!audioInitialized) {
@@ -120,6 +121,7 @@ function processAction(action: string, data?: number, strData?: string) {
 // Touch input (primary for tablets)
 canvas.addEventListener('touchstart', (e) => {
   e.preventDefault();
+  touchHandled = true;
   const touch = e.touches[0];
   const { x, y } = getCanvasCoords(touch.clientX, touch.clientY);
   const hit = hitTest(x, y);
@@ -128,6 +130,7 @@ canvas.addEventListener('touchstart', (e) => {
 
 // Click fallback for desktop
 canvas.addEventListener('click', (e) => {
+  if (touchHandled) { touchHandled = false; return; }
   const { x, y } = getCanvasCoords(e.clientX, e.clientY);
   const hit = hitTest(x, y);
   if (hit) processAction(hit.action, hit.data, hit.strData);

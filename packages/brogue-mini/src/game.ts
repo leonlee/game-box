@@ -315,22 +315,25 @@ export class GameState {
         value: 2,
         equipSlot: "armor",
       });
-      const bossX = rand(last.x, last.x + last.w - 1);
-      const bossY = rand(last.y, last.y + last.h - 1);
-      if (this.cells[bossY][bossX].tile !== Tile.Wall && !(bossX === sx && bossY === sy)) {
-        this.monsters.push({
-          x: bossX, y: bossY,
-          char: "D", color: "#ff4444",
-          nameId: "dragon",
-          hp: 22, maxHp: 22,
-          attack: 6, defense: 2,
-          xpValue: 50,
-        });
+      for (let attempt = 0; attempt < 20; attempt++) {
+        const bossX = rand(last.x, last.x + last.w - 1);
+        const bossY = rand(last.y, last.y + last.h - 1);
+        if (this.cells[bossY][bossX].tile !== Tile.Wall && !(bossX === sx && bossY === sy)) {
+          this.monsters.push({
+            x: bossX, y: bossY,
+            char: "D", color: "#ff4444",
+            nameId: "dragon",
+            hp: 22, maxHp: 22,
+            attack: 6, defense: 2,
+            xpValue: 50,
+          });
+          break;
+        }
       }
     }
 
     // Depth 10: Lich boss guards Amulet of Yendor
-    if (this.depth >= 10) {
+    if (this.depth === 10) {
       const last = rooms[rooms.length - 1];
       const sx = Math.floor(last.x + last.w / 2);
       const sy = Math.floor(last.y + last.h / 2);
@@ -342,18 +345,21 @@ export class GameState {
         type: "amulet",
         value: 0,
       });
-      const bossX = rand(last.x, last.x + last.w - 1);
-      const bossY = rand(last.y, last.y + last.h - 1);
-      if (this.cells[bossY][bossX].tile !== Tile.Wall && !(bossX === sx && bossY === sy)) {
-        this.monsters.push({
-          x: bossX, y: bossY,
-          char: "L", color: "#9933ff",
-          nameId: "lich",
-          hp: 30, maxHp: 30,
-          attack: 7, defense: 3,
-          ranged: true,
-          xpValue: 80,
-        });
+      for (let attempt = 0; attempt < 20; attempt++) {
+        const bossX = rand(last.x, last.x + last.w - 1);
+        const bossY = rand(last.y, last.y + last.h - 1);
+        if (this.cells[bossY][bossX].tile !== Tile.Wall && !(bossX === sx && bossY === sy)) {
+          this.monsters.push({
+            x: bossX, y: bossY,
+            char: "L", color: "#9933ff",
+            nameId: "lich",
+            hp: 30, maxHp: 30,
+            attack: 7, defense: 3,
+            ranged: true,
+            xpValue: 80,
+          });
+          break;
+        }
       }
     }
 
@@ -406,6 +412,7 @@ export class GameState {
     const my = rand(room.y, room.y + room.h - 1);
 
     if (this.cells[my][mx].tile === Tile.Wall) return;
+    if (this.monsterAt(mx, my)) return;
 
     this.monsters.push({
       x: mx,
@@ -547,8 +554,8 @@ export class GameState {
     this.endTurn();
   }
 
-  tryDescend() {
-    if (this.gameOver) return;
+  tryDescend(): boolean {
+    if (this.gameOver) return false;
 
     if (this.cells[this.player.y][this.player.x].tile === Tile.StairsDown) {
       this.depth++;
@@ -557,16 +564,18 @@ export class GameState {
       this.generateLevel();
       // Auto-save on descend
       saveGame(this);
+      return true;
     } else {
       this.msg(t("noStairs"), "system");
+      return false;
     }
   }
 
-  tryAscend() {
-    if (this.gameOver) return;
+  tryAscend(): boolean {
+    if (this.gameOver) return false;
     if (!this.ascending) {
       this.msg(t("noStairsUp"), "system");
-      return;
+      return false;
     }
     if (this.cells[this.player.y][this.player.x].tile === Tile.StairsUp) {
       this.depth--;
@@ -576,14 +585,16 @@ export class GameState {
         this.msg(t("escaped"), "system");
         this.gameOver = true;
         this.won = true;
-        return;
+        return true;
       }
       sfx.descend();
       this.msg(t("ascend")(this.depth), "system");
       this.generateLevel();
       saveGame(this);
+      return true;
     } else {
       this.msg(t("noStairsUp"), "system");
+      return false;
     }
   }
 
@@ -682,15 +693,16 @@ export class GameState {
     }
 
     const queue: number[] = []; // flat pairs: x, y
+    let qi = 0;
     queue.push(px, py);
     visited[py][px] = true;
 
     let tx = -1;
     let ty = -1;
 
-    while (queue.length > 0) {
-      const cx = queue.shift()!;
-      const cy = queue.shift()!;
+    while (qi < queue.length) {
+      const cx = queue[qi++];
+      const cy = queue[qi++];
 
       // Is this cell next to something unrevealed?
       if (this.adjacentToUnrevealed(cx, cy)) {
@@ -913,9 +925,9 @@ export class GameState {
         this.gameOver = true;
       }
     }
-    // Monsters on lava take damage (fire imps immune)
+    // Monsters on lava take damage (fire imps and shopkeeper immune)
     for (const m of [...this.monsters]) {
-      if (this.cells[m.y][m.x].tile === Tile.Lava && m.nameId !== "fire imp") {
+      if (this.cells[m.y][m.x].tile === Tile.Lava && m.nameId !== "fire imp" && m.nameId !== "shopkeeper") {
         m.hp -= 3;
         if (m.hp <= 0) {
           this.monsters = this.monsters.filter(mm => mm !== m);
@@ -1171,6 +1183,7 @@ export class GameState {
       this.player.x = nx;
       this.player.y = ny;
       this.msg(t("ogreKnockback"), "combat");
+      this.processTrap(nx, ny);
     }
   }
 
@@ -1320,6 +1333,8 @@ export class GameState {
           this.checkSkeletonReassembly(monster);
           this.dropLoot(monster);
           this.monsters = this.monsters.filter(m => m !== monster);
+        } else {
+          break; // monster survived, can't pass through
         }
       }
       this.player.x = nx;
@@ -1703,6 +1718,9 @@ export class GameState {
       if (target.hp <= 0) {
         sfx.monsterDie();
         this.msg(t("monsterDies")(name(target.nameId)), "combat");
+        this.kills++;
+        this.gainXp(target.xpValue ?? 5);
+        this.checkSkeletonReassembly(target);
         this.dropLoot(target);
         this.monsters = this.monsters.filter((m) => m !== target);
       }

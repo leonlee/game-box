@@ -133,9 +133,7 @@ function handleAction(action: string) {
       break;
     case "stairs":
       if (game.gameOver) return;
-      // Try both directions - the game will show appropriate message if no stairs
-      game.tryDescend();
-      game.tryAscend();
+      if (!game.tryDescend()) game.tryAscend();
       break;
     case "inventory":
       if (game.gameOver) return;
@@ -367,8 +365,9 @@ document.addEventListener("keydown", (e) => {
   // --- Buy confirmation ---
   if (game.pendingBuy) {
     if (e.key === "y" || e.key === "Y") { game.confirmBuy(); e.preventDefault(); return; }
-    // Any other key auto-declines and falls through to normal handling
     game.declineBuy();
+    e.preventDefault();
+    return;
   }
 
   // --- Level up selection ---

@@ -215,29 +215,19 @@ function renderSentenceAssembly(ctx: CanvasRenderingContext2D, q: AssemblyQuesti
     ax += blockW + 6;
   }
 
-  // Available blocks (bottom)
-  const usedBlocks = new Map<string, number>();
-  for (const b of assemblyLine) {
-    usedBlocks.set(b, (usedBlocks.get(b) ?? 0) + 1);
-  }
-
-  const available: { block: string; originalIdx: number }[] = [];
-  const blockCounts = new Map<string, number>();
-  for (let i = 0; i < q.blocks.length; i++) {
-    const b = q.blocks[i];
-    const count = blockCounts.get(b) ?? 0;
-    const usedCount = usedBlocks.get(b) ?? 0;
-    if (count < q.blocks.filter(x => x === b).length - usedCount) {
-      // This is overly complex; simplify: track which indices are placed
-    }
-    blockCounts.set(b, count + 1);
-  }
-
-  // Simpler approach: track by counting
-  const remainingBlocks: string[] = [...q.blocks];
+  // Available blocks: track which original indices have been placed
+  const placedIndices = new Set<number>();
   for (const placed of assemblyLine) {
-    const idx = remainingBlocks.indexOf(placed);
-    if (idx !== -1) remainingBlocks.splice(idx, 1);
+    for (let i = 0; i < q.blocks.length; i++) {
+      if (!placedIndices.has(i) && q.blocks[i] === placed) {
+        placedIndices.add(i);
+        break;
+      }
+    }
+  }
+  const remainingBlocks: { text: string; idx: number }[] = [];
+  for (let i = 0; i < q.blocks.length; i++) {
+    if (!placedIndices.has(i)) remainingBlocks.push({ text: q.blocks[i], idx: i });
   }
 
   ctx.font = 'bold 16px sans-serif';
@@ -249,7 +239,7 @@ function renderSentenceAssembly(ctx: CanvasRenderingContext2D, q: AssemblyQuesti
   let currentRowX = bx;
 
   for (let i = 0; i < remainingBlocks.length; i++) {
-    const text = remainingBlocks[i];
+    const { text, idx } = remainingBlocks[i];
     const tw = ctx.measureText(text).width + 24;
     const blockW = Math.max(tw, 50);
 
@@ -271,7 +261,7 @@ function renderSentenceAssembly(ctx: CanvasRenderingContext2D, q: AssemblyQuesti
     ctx.textBaseline = 'middle';
     ctx.fillText(text, currentRowX + blockW / 2, currentRowY + 20);
 
-    hitAreas.push({ x: currentRowX, y: currentRowY, w: blockW, h: 40, action: 'add_block', strData: text });
+    hitAreas.push({ x: currentRowX, y: currentRowY, w: blockW, h: 40, action: 'add_block', data: idx });
     currentRowX += blockW + 8;
   }
 
@@ -564,8 +554,11 @@ function renderFeedback(ctx: CanvasRenderingContext2D, game: Game): void {
     ctx.font = 'bold 16px sans-serif';
     // Truncate if too long
     let ans = fb.correctAnswer;
-    while (ctx.measureText(ans).width > cardW - 40 && ans.length > 0) {
-      ans = ans.slice(0, -1) + '…';
+    if (ctx.measureText(ans).width > cardW - 40) {
+      while (ctx.measureText(ans + '…').width > cardW - 40 && ans.length > 1) {
+        ans = ans.slice(0, -1);
+      }
+      ans = ans + '…';
     }
     ctx.fillText(ans, W / 2, cardY + 105);
   }
