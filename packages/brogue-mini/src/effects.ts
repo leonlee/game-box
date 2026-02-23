@@ -1,4 +1,4 @@
-export type StatusType = "poison" | "bleed" | "slow" | "blind" | "burn" | "stun" | "fear";
+export type StatusType = "poison" | "bleed" | "slow" | "blind" | "burn" | "stun" | "fear" | "speed" | "invisible" | "protection";
 
 export interface StatusEffect {
   type: StatusType;
@@ -53,6 +53,9 @@ export class StatusManager {
         case "burn": icons.push({ icon: "BRN", color: "#ff6600" }); break;
         case "stun": icons.push({ icon: "STN", color: "#ffff00" }); break;
         case "fear": icons.push({ icon: "FER", color: "#9b59b6" }); break;
+        case "speed": icons.push({ icon: "SPD", color: "#00ccff" }); break;
+        case "invisible": icons.push({ icon: "INV", color: "#aaaaff" }); break;
+        case "protection": icons.push({ icon: "PRT", color: "#ffdd44" }); break;
       }
     }
     return icons;

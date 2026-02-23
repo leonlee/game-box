@@ -32,7 +32,26 @@ export interface Creature {
   stunTurns?: number;  // skips turns while stunned
   burnTurns?: number;  // takes damage each turn
   fearTurns?: number;  // flees from player
+  packBonus?: boolean;     // wolf: gains ATK per adjacent wolf
+  disguised?: boolean;     // mimic: pretending to be an item
+  disguiseItem?: { char: string; color: string }; // mimic's fake item appearance
+  reflectDamage?: number;  // crystal elemental: % damage reflected
+  lifeSteal?: number;      // vampire: HP healed per hit
+  poisonCloud?: boolean;   // mushroom: AoE poison on death
+  slowMonster?: boolean;   // golem: acts every other turn
+  summonCooldown?: number; // necromancer: turns until next summon
+  doubleAct?: boolean;     // bat/hydra: acts twice per turn
+  stationary?: boolean;    // mushroom: doesn't move
+  lavaImmune?: boolean;    // ember sprite: immune to lava
+  explodeOnDeath?: number; // ember sprite: AoE damage on death
+  teleportCd?: number;     // phantom: turns until next teleport
+  webCharge?: number;      // spider: turns until next web
+  regenRate?: number;      // hydra: HP regen per turn
 }
+
+export type PetStage = 0 | 1 | 2 | 3;
+export type PetCommand = "follow" | "stay" | "aggressive";
+export type PetAbility = "bark" | "pounce" | "pack_leader";
 
 export type MsgType = "combat" | "pickup" | "system" | "pet" | "info";
 
@@ -59,7 +78,7 @@ export interface Item {
   nameId: string;
   type: ItemType;
   value: number;
-  equipSlot?: "weapon" | "armor";
+  equipSlot?: "weapon" | "armor" | "ring";
   durability?: number;
   maxDurability?: number;
   enchantment?: Enchantment;
@@ -78,6 +97,19 @@ interface MonsterDef {
   ranged?: boolean;
   splits?: boolean;
   xpValue: number;
+  depthMin?: number;
+  depthMax?: number;
+  packBonus?: boolean;
+  disguised?: boolean;
+  reflectDamage?: number;
+  lifeSteal?: number;
+  poisonCloud?: boolean;
+  slowMonster?: boolean;
+  doubleAct?: boolean;
+  stationary?: boolean;
+  lavaImmune?: boolean;
+  explodeOnDeath?: number;
+  regenRate?: number;
 }
 
 const MONSTER_DEFS: MonsterDef[] = [
@@ -91,6 +123,28 @@ const MONSTER_DEFS: MonsterDef[] = [
   { char: "z", color: "#cccccc", nameId: "skeleton", hp: 9, attack: 4, defense: 2, xpValue: 12 },
   { char: "W", color: "#6a0dad", nameId: "wraith", hp: 12, attack: 5, defense: 1, passWall: true, xpValue: 18 },
   { char: "f", color: "#ff4500", nameId: "fire imp", hp: 7, attack: 3, defense: 0, ranged: true, xpValue: 14 },
+];
+
+const NEW_MONSTER_DEFS: MonsterDef[] = [
+  { char: "h", color: "#8a8a8a", nameId: "wolf", hp: 6, attack: 3, defense: 0, xpValue: 6, depthMin: 1, depthMax: 4, packBonus: true },
+  { char: "x", color: "#d3d3d3", nameId: "spider", hp: 4, attack: 2, defense: 0, xpValue: 5, depthMin: 2, depthMax: 5 },
+  { char: "M", color: "#cd853f", nameId: "mimic", hp: 12, attack: 5, defense: 1, xpValue: 16, depthMin: 3, depthMax: 7, disguised: true },
+  { char: "T", color: "#8b8682", nameId: "golem", hp: 20, attack: 4, defense: 4, xpValue: 20, depthMin: 4, depthMax: 8, slowMonster: true },
+  { char: "V", color: "#8b0000", nameId: "vampire", hp: 10, attack: 5, defense: 1, xpValue: 18, depthMin: 5, depthMax: 9, lifeSteal: 2 },
+  { char: "m", color: "#8b4513", nameId: "mushroom", hp: 5, attack: 1, defense: 0, xpValue: 8, depthMin: 3, depthMax: 6, stationary: true, poisonCloud: true },
+  { char: "C", color: "#87ceeb", nameId: "crystal elemental", hp: 15, attack: 3, defense: 3, xpValue: 22, depthMin: 6, depthMax: 9, reflectDamage: 30 },
+  { char: "B", color: "#999999", nameId: "bat", hp: 3, attack: 2, defense: 0, xpValue: 4, depthMin: 1, depthMax: 3, doubleAct: true },
+  { char: "N", color: "#6a0dad", nameId: "necromancer", hp: 8, attack: 3, defense: 1, xpValue: 16, depthMin: 7, depthMax: 10, ranged: true },
+  { char: "H", color: "#2e8b57", nameId: "hydra", hp: 18, attack: 4, defense: 2, xpValue: 25, depthMin: 8, depthMax: 10, doubleAct: true, regenRate: 1 },
+  { char: "E", color: "#ff6347", nameId: "ember sprite", hp: 5, attack: 3, defense: 0, xpValue: 10, depthMin: 7, depthMax: 10, lavaImmune: true, explodeOnDeath: 3 },
+  { char: "P", color: "#b0c4de", nameId: "phantom", hp: 7, attack: 4, defense: 0, xpValue: 14, depthMin: 5, depthMax: 8, passWall: true },
+];
+
+const PET_STAGES = [
+  { depthMin: 1, nameId: "puppy", char: "p", color: "#deb887", hp: 10, attack: 1, defense: 0, scale: 0.10, abilities: [] as PetAbility[] },
+  { depthMin: 3, nameId: "jack", char: "d", color: "#f4a460", hp: 15, attack: 2, defense: 1, scale: 0.14, abilities: ["bark"] as PetAbility[] },
+  { depthMin: 5, nameId: "wolf", char: "d", color: "#808080", hp: 22, attack: 4, defense: 2, scale: 0.16, abilities: ["bark", "pounce"] as PetAbility[] },
+  { depthMin: 8, nameId: "dire wolf", char: "d", color: "#c0c0c0", hp: 30, attack: 6, defense: 3, scale: 0.18, abilities: ["bark", "pounce", "pack_leader"] as PetAbility[] },
 ];
 
 const DIRS4: [number, number][] = [[-1,0],[1,0],[0,-1],[0,1]];
@@ -135,6 +189,9 @@ export class GameState {
   animations = new AnimationQueue();
   potionLabels: Record<string, string> = {};
   scrollLabels: Record<string, string> = {};
+  petStage: PetStage = 0;
+  petCommand: PetCommand = "follow";
+  petAbilityCooldowns: Record<string, number> = {};
 
   private readonly fovRadius = 10;
   private readonly petHealInterval = 5;
@@ -173,8 +230,8 @@ export class GameState {
       }
       return arr;
     };
-    const potionTypes = ["health potion", "potion of strength", "potion of poison"];
-    const scrollTypes = ["scroll of teleport", "scroll of identify", "scroll of enchant", "scroll of mapping", "scroll of remove curse"];
+    const potionTypes = ["health potion", "potion of strength", "potion of poison", "potion of speed", "potion of invisibility"];
+    const scrollTypes = ["scroll of teleport", "scroll of identify", "scroll of enchant", "scroll of mapping", "scroll of remove curse", "scroll of protection"];
     const sColors = shuffle([...potionColors]);
     const sAdj = shuffle([...scrollAdj]);
     for (let i = 0; i < potionTypes.length; i++) {
@@ -186,17 +243,17 @@ export class GameState {
   }
 
   private makePet(x: number, y: number): Creature {
-    // Pet scales with depth
-    const scale = 1 + (this.depth - 1) * 0.14;
+    const stage = PET_STAGES[this.petStage];
+    const scale = 1 + (this.depth - 1) * stage.scale;
     return {
       x, y,
-      char: "d",
-      color: "#f4a460",
-      nameId: "jack",
-      hp: Math.ceil(15 * scale),
-      maxHp: Math.ceil(15 * scale),
-      attack: Math.ceil(2 * scale),
-      defense: Math.ceil(1 * scale),
+      char: stage.char,
+      color: stage.color,
+      nameId: stage.nameId,
+      hp: Math.ceil(stage.hp * scale),
+      maxHp: Math.ceil(stage.hp * scale),
+      attack: Math.ceil(stage.attack * scale),
+      defense: Math.ceil(stage.defense * scale),
     };
   }
 
@@ -207,17 +264,28 @@ export class GameState {
       whetstone: { char: ")", color: "#87ceeb", nameId: "whetstone", type: "consumable", value: 1 },
       "short sword": { char: ")", color: "#cccccc", nameId: "short sword", type: "equipment", value: 2, equipSlot: "weapon", durability: 45, maxDurability: 45 },
       "long sword": { char: ")", color: "#e0e0ff", nameId: "long sword", type: "equipment", value: 4, equipSlot: "weapon", durability: 60, maxDurability: 60 },
+      dagger: { char: ")", color: "#aaaaaa", nameId: "dagger", type: "equipment", value: 1, equipSlot: "weapon", durability: 35, maxDurability: 35 },
+      "battle axe": { char: ")", color: "#dd7733", nameId: "battle axe", type: "equipment", value: 5, equipSlot: "weapon", durability: 50, maxDurability: 50 },
+      "war hammer": { char: ")", color: "#8888cc", nameId: "war hammer", type: "equipment", value: 6, equipSlot: "weapon", durability: 40, maxDurability: 40 },
       "leather armor": { char: "[", color: "#8b6914", nameId: "leather armor", type: "equipment", value: 2, equipSlot: "armor", durability: 52, maxDurability: 52 },
       "chain mail": { char: "[", color: "#b0b0b0", nameId: "chain mail", type: "equipment", value: 4, equipSlot: "armor", durability: 65, maxDurability: 65 },
+      "plate armor": { char: "[", color: "#d0d0d0", nameId: "plate armor", type: "equipment", value: 5, equipSlot: "armor", durability: 80, maxDurability: 80 },
+      "mithril mail": { char: "[", color: "#e0e8ff", nameId: "mithril mail", type: "equipment", value: 6, equipSlot: "armor" },
       "scroll of teleport": { char: "?", color: "#daa520", nameId: "scroll of teleport", type: "scroll", value: 0 },
       "scroll of identify": { char: "?", color: "#87cefa", nameId: "scroll of identify", type: "scroll", value: 0 },
       "scroll of enchant": { char: "?", color: "#ff6666", nameId: "scroll of enchant", type: "scroll", value: 0 },
       "scroll of mapping": { char: "?", color: "#66ff66", nameId: "scroll of mapping", type: "scroll", value: 0 },
       "scroll of remove curse": { char: "?", color: "#ffffff", nameId: "scroll of remove curse", type: "scroll", value: 0 },
+      "scroll of protection": { char: "?", color: "#ffdd00", nameId: "scroll of protection", type: "scroll", value: 0 },
       "potion of strength": { char: "!", color: "#ff4444", nameId: "potion of strength", type: "potion", value: 1 },
       "potion of poison": { char: "!", color: "#44ff44", nameId: "potion of poison", type: "potion", value: 5 },
+      "potion of speed": { char: "!", color: "#00ccff", nameId: "potion of speed", type: "potion", value: 10 },
+      "potion of invisibility": { char: "!", color: "#aaaaff", nameId: "potion of invisibility", type: "potion", value: 8 },
       "throwing knife": { char: "/", color: "#c0c0c0", nameId: "throwing knife", type: "throwing", value: 4 },
       ration: { char: "%", color: "#cd853f", nameId: "ration", type: "food", value: 40 },
+      "ring of regeneration": { char: "=", color: "#2ecc71", nameId: "ring of regeneration", type: "equipment", value: 1, equipSlot: "ring" },
+      "ring of perception": { char: "=", color: "#f1c40f", nameId: "ring of perception", type: "equipment", value: 1, equipSlot: "ring" },
+      "phoenix feather": { char: "*", color: "#ff4400", nameId: "phoenix feather", type: "consumable", value: 0 },
     };
     const def = defs[id] ?? defs["health potion"];
     return { x, y, ...def };
@@ -258,6 +326,7 @@ export class GameState {
     this.cells = cells;
     this.monsters = [];
     this.items = [];
+    this.checkPetEvolution();
 
     // Player in first room
     const first = rooms[0];
@@ -332,6 +401,77 @@ export class GameState {
       }
     }
 
+    // Depth 3: Spider Queen boss
+    if (this.depth === 3) {
+      const last = rooms[rooms.length - 1];
+      const sx = Math.floor(last.x + last.w / 2);
+      const sy = Math.floor(last.y + last.h / 2);
+      // Pre-place web tiles in boss room
+      for (let ry = last.y; ry < last.y + last.h; ry++) {
+        for (let rx = last.x; rx < last.x + last.w; rx++) {
+          if (this.cells[ry][rx].tile === Tile.Floor && Math.random() < 0.3) {
+            this.cells[ry][rx].tile = Tile.Web;
+          }
+        }
+      }
+      for (let attempt = 0; attempt < 20; attempt++) {
+        const bossX = rand(last.x, last.x + last.w - 1);
+        const bossY = rand(last.y, last.y + last.h - 1);
+        if (this.cells[bossY][bossX].tile !== Tile.Wall && !(bossX === sx && bossY === sy)) {
+          this.monsters.push({
+            x: bossX, y: bossY,
+            char: "Q", color: "#8b4513",
+            nameId: "spider queen",
+            hp: 16, maxHp: 16,
+            attack: 4, defense: 1,
+            xpValue: 30,
+            summonCooldown: 3,
+          });
+          break;
+        }
+      }
+    }
+
+    // Depth 7: Necromancer Lord boss
+    if (this.depth === 7) {
+      const last = rooms[rooms.length - 1];
+      const sx = Math.floor(last.x + last.w / 2);
+      const sy = Math.floor(last.y + last.h / 2);
+      // BoneFloor tiles in boss room
+      for (let ry = last.y; ry < last.y + last.h; ry++) {
+        for (let rx = last.x; rx < last.x + last.w; rx++) {
+          if (this.cells[ry][rx].tile === Tile.Floor) {
+            this.cells[ry][rx].tile = Tile.BoneFloor;
+          }
+        }
+      }
+      // Phoenix feather drop
+      this.items.push({
+        x: sx, y: sy,
+        char: "*", color: "#ff4400",
+        nameId: "phoenix feather",
+        type: "consumable",
+        value: 0,
+      });
+      for (let attempt = 0; attempt < 20; attempt++) {
+        const bossX = rand(last.x, last.x + last.w - 1);
+        const bossY = rand(last.y, last.y + last.h - 1);
+        if (this.cells[bossY][bossX].tile !== Tile.Wall && !(bossX === sx && bossY === sy)) {
+          this.monsters.push({
+            x: bossX, y: bossY,
+            char: "K", color: "#4b0082",
+            nameId: "necromancer lord",
+            hp: 28, maxHp: 28,
+            attack: 5, defense: 2,
+            ranged: true,
+            xpValue: 65,
+            summonCooldown: 3,
+          });
+          break;
+        }
+      }
+    }
+
     // Depth 10: Lich boss guards Amulet of Yendor
     if (this.depth === 10) {
       const last = rooms[rooms.length - 1];
@@ -374,6 +514,8 @@ export class GameState {
       { id: "ration", price: 5 },
       { id: "scroll of identify", price: 10 },
       { id: "potion of strength", price: 20 },
+      { id: "potion of speed", price: 15 },
+      { id: "scroll of protection", price: 18 },
     ];
     for (let j = 0; j < rand(2, 4); j++) {
       const pick = shopItems[rand(0, shopItems.length - 1)];
@@ -402,10 +544,18 @@ export class GameState {
 
   private spawnMonster(room: Room) {
     // Tier progression spread across 10 depths
-    // depth 1: rat, 2: +goblin, 3: +snake, 4: +archer, 5: +ogre, 6: +ghost, 7: +slime, 8: +skeleton, 9: +wraith, 10: +fire imp
     const tierByDepth = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
     const maxTier = Math.min((tierByDepth[Math.min(this.depth, tierByDepth.length) - 1] ?? MONSTER_DEFS.length), MONSTER_DEFS.length) - 1;
-    const def = MONSTER_DEFS[rand(0, maxTier)];
+
+    let def: MonsterDef;
+    // 40% chance to pick from new monster pool (filtered by depth)
+    const newPool = NEW_MONSTER_DEFS.filter(d => this.depth >= (d.depthMin ?? 1) && this.depth <= (d.depthMax ?? 10));
+    if (newPool.length > 0 && Math.random() < 0.4) {
+      def = newPool[rand(0, newPool.length - 1)];
+    } else {
+      def = MONSTER_DEFS[rand(0, maxTier)];
+    }
+
     let scale = 1 + (this.depth - 1) * 0.12;
     if (this.ascending) scale *= 1.2; // dungeon is "angry" during ascent
     const mx = rand(room.x, room.x + room.w - 1);
@@ -414,7 +564,7 @@ export class GameState {
     if (this.cells[my][mx].tile === Tile.Wall) return;
     if (this.monsterAt(mx, my)) return;
 
-    this.monsters.push({
+    const monster: Creature = {
       x: mx,
       y: my,
       char: def.char,
@@ -428,7 +578,41 @@ export class GameState {
       ranged: def.ranged,
       splits: def.splits,
       xpValue: Math.ceil(def.xpValue * scale),
-    });
+    };
+
+    // Copy special properties from def
+    if (def.packBonus) monster.packBonus = true;
+    if (def.slowMonster) monster.slowMonster = true;
+    if (def.doubleAct) monster.doubleAct = true;
+    if (def.stationary) monster.stationary = true;
+    if (def.lavaImmune) monster.lavaImmune = true;
+    if (def.poisonCloud) monster.poisonCloud = true;
+    if (def.reflectDamage) monster.reflectDamage = def.reflectDamage;
+    if (def.lifeSteal) monster.lifeSteal = def.lifeSteal;
+    if (def.explodeOnDeath) monster.explodeOnDeath = def.explodeOnDeath;
+    if (def.regenRate) monster.regenRate = def.regenRate;
+
+    // Mimic starts disguised
+    if (def.disguised) {
+      monster.disguised = true;
+      const fakeItems = [
+        { char: "!", color: "#ff69b4" },
+        { char: ")", color: "#cccccc" },
+        { char: "[", color: "#8b6914" },
+        { char: "?", color: "#daa520" },
+        { char: "%", color: "#cd853f" },
+      ];
+      monster.disguiseItem = fakeItems[rand(0, fakeItems.length - 1)];
+    }
+
+    // Spider web charge
+    if (def.nameId === "spider") monster.webCharge = 3;
+    // Necromancer summon cooldown
+    if (def.nameId === "necromancer") monster.summonCooldown = 4;
+    // Phantom teleport cooldown
+    if (def.nameId === "phantom") monster.teleportCd = 2;
+
+    this.monsters.push(monster);
   }
 
   private spawnItem(room: Room) {
@@ -438,19 +622,34 @@ export class GameState {
 
     const roll = Math.random();
     let id: string;
-    if (roll < 0.18) id = "health potion";
-    else if (roll < 0.24) id = "potion of strength";
-    else if (roll < 0.28) id = "potion of poison";
-    else if (roll < 0.36) id = "ration";
-    else if (roll < 0.44) id = "throwing knife";
-    else if (roll < 0.52) id = "scroll of teleport";
-    else if (roll < 0.56) id = "scroll of identify";
-    else if (roll < 0.60) id = "scroll of enchant";
-    else if (roll < 0.63) id = "scroll of mapping";
-    else if (roll < 0.66) id = "scroll of remove curse";
-    else if (roll < 0.76) id = this.depth >= 3 ? "long sword" : "short sword";
-    else if (roll < 0.86) id = this.depth >= 3 ? "chain mail" : "leather armor";
-    else id = "whetstone";
+    if (roll < 0.14) id = "health potion";
+    else if (roll < 0.18) id = "potion of strength";
+    else if (roll < 0.21) id = "potion of poison";
+    else if (roll < 0.24) id = "potion of speed";
+    else if (roll < 0.27) id = "potion of invisibility";
+    else if (roll < 0.33) id = "ration";
+    else if (roll < 0.39) id = "throwing knife";
+    else if (roll < 0.44) id = "scroll of teleport";
+    else if (roll < 0.47) id = "scroll of identify";
+    else if (roll < 0.50) id = "scroll of enchant";
+    else if (roll < 0.53) id = "scroll of mapping";
+    else if (roll < 0.55) id = "scroll of remove curse";
+    else if (roll < 0.57) id = "scroll of protection";
+    else if (roll < 0.67) {
+      // Weapon tier by depth
+      if (this.depth >= 7) id = Math.random() < 0.5 ? "war hammer" : "battle axe";
+      else if (this.depth >= 5) id = Math.random() < 0.5 ? "battle axe" : "long sword";
+      else if (this.depth >= 3) id = "long sword";
+      else id = Math.random() < 0.5 ? "short sword" : "dagger";
+    } else if (roll < 0.77) {
+      // Armor tier by depth
+      if (this.depth >= 8 && Math.random() < 0.15) id = "mithril mail";
+      else if (this.depth >= 6) id = Math.random() < 0.5 ? "plate armor" : "chain mail";
+      else if (this.depth >= 3) id = "chain mail";
+      else id = "leather armor";
+    } else if (roll < 0.82 && this.depth >= 4) {
+      id = Math.random() < 0.5 ? "ring of regeneration" : "ring of perception";
+    } else id = "whetstone";
 
     const item = this.makeItem(ix, iy, id);
     // 20% chance ground equipment is cursed (depth 3+)
@@ -465,6 +664,7 @@ export class GameState {
     const tile = this.cells[y][x].tile;
     if (tile === Tile.Wall) return passWall;
     if (tile === Tile.DeepWater) return passWall; // only ghosts/flying can cross
+    if (tile === Tile.Stalactite) return false; // decorative, impassable
     return true;
   }
 
@@ -529,8 +729,8 @@ export class GameState {
       this.player.x = nx;
       this.player.y = ny;
 
-      // Water slow on entering water
-      if (this.cells[ny][nx].tile === Tile.Water) {
+      // Water/Web slow on entering water or web
+      if ((this.cells[ny][nx].tile === Tile.Water || this.cells[ny][nx].tile === Tile.Web) && !this.statusMgr.has("speed")) {
         this.player.waterSlow = true;
       }
 
@@ -540,8 +740,8 @@ export class GameState {
       this.player.x = nx;
       this.player.y = ny;
 
-      // Water slow on entering water
-      if (this.cells[ny][nx].tile === Tile.Water) {
+      // Water/Web slow on entering water or web
+      if ((this.cells[ny][nx].tile === Tile.Water || this.cells[ny][nx].tile === Tile.Web) && !this.statusMgr.has("speed")) {
         this.player.waterSlow = true;
       }
 
@@ -788,6 +988,9 @@ export class GameState {
     this.gold = 0;
     this.pendingBuy = null;
     this.burningTiles = new Map();
+    this.petStage = 0;
+    this.petCommand = "follow";
+    this.petAbilityCooldowns = {};
     this.randomizeLabels();
     deleteSave();
     this.generateLevel();
@@ -807,9 +1010,33 @@ export class GameState {
     for (const key of Object.keys(this.abilityCooldowns)) {
       if (this.abilityCooldowns[key] > 0) this.abilityCooldowns[key]--;
     }
+    // Tick pet ability cooldowns
+    for (const key of Object.keys(this.petAbilityCooldowns)) {
+      if (this.petAbilityCooldowns[key] > 0) this.petAbilityCooldowns[key]--;
+    }
+    // Ring of regeneration
+    if (this.inventory.getRingEffect() === "regeneration" && this.turnCount % 8 === 0) {
+      if (this.player.hp < this.player.maxHp) {
+        this.player.hp++;
+        this.msg(t("ringRegen"), "pickup");
+      }
+    }
     // Blind reduces FOV radius
     const fov = this.statusMgr.has("blind") ? 3 : this.fovRadius;
     computeFOV(this.cells, this.player.x, this.player.y, fov);
+    // Ring of perception reveals traps in FOV
+    if (this.inventory.getRingEffect() === "perception") {
+      for (let y = 0; y < MAP_H; y++) {
+        for (let x = 0; x < MAP_W; x++) {
+          if (this.cells[y][x].visible && !this.cells[y][x].trapRevealed) {
+            const t2 = this.cells[y][x].tile;
+            if (t2 === Tile.TrapSpike || t2 === Tile.TrapTeleport || t2 === Tile.TrapAlarm) {
+              this.cells[y][x].trapRevealed = true;
+            }
+          }
+        }
+      }
+    }
     this.showContextInfo();
   }
 
@@ -859,6 +1086,20 @@ export class GameState {
       skeleton: "reassembles",
       wraith: "drains max HP",
       "fire imp": "ranged fire",
+      wolf: "pack bonus",
+      spider: "webs",
+      mimic: "disguise",
+      golem: "slow, tough",
+      vampire: "life steal",
+      mushroom: "poison cloud",
+      "crystal elemental": "reflects damage",
+      bat: "double attack",
+      necromancer: "summons, ranged",
+      hydra: "regen, double attack",
+      "ember sprite": "explodes on death",
+      phantom: "teleports, pass walls",
+      "spider queen": "summons, webs, poison",
+      "necromancer lord": "summons, ranged, teleport",
     };
     return specials[nameId] ?? null;
   }
@@ -925,9 +1166,9 @@ export class GameState {
         this.gameOver = true;
       }
     }
-    // Monsters on lava take damage (fire imps and shopkeeper immune)
+    // Monsters on lava take damage (fire imps, ember sprites, shopkeeper immune)
     for (const m of [...this.monsters]) {
-      if (this.cells[m.y][m.x].tile === Tile.Lava && m.nameId !== "fire imp" && m.nameId !== "shopkeeper") {
+      if (this.cells[m.y][m.x].tile === Tile.Lava && m.nameId !== "fire imp" && m.nameId !== "shopkeeper" && !m.lavaImmune) {
         m.hp -= 3;
         if (m.hp <= 0) {
           this.monsters = this.monsters.filter(mm => mm !== m);
@@ -977,27 +1218,143 @@ export class GameState {
     }
   }
 
+  private checkPetEvolution() {
+    if (!this.petAlive) return;
+    let targetStage: PetStage = 0;
+    if (this.depth >= 8) targetStage = 3;
+    else if (this.depth >= 5) targetStage = 2;
+    else if (this.depth >= 3) targetStage = 1;
+
+    if (targetStage > this.petStage) {
+      this.petStage = targetStage;
+      const stage = PET_STAGES[targetStage];
+      const oldHpRatio = this.pet.hp / this.pet.maxHp;
+      this.pet.char = stage.char;
+      this.pet.color = stage.color;
+      this.pet.nameId = stage.nameId;
+      this.pet.maxHp = Math.ceil(stage.hp * (1 + (this.depth - 1) * stage.scale));
+      this.pet.hp = Math.ceil(this.pet.maxHp * oldHpRatio);
+      this.pet.attack = Math.ceil(stage.attack * (1 + (this.depth - 1) * stage.scale));
+      this.pet.defense = Math.ceil(stage.defense * (1 + (this.depth - 1) * stage.scale));
+      sfx.petEvolve();
+      this.msg(t("petEvolve")(name(stage.nameId)), "pet");
+    }
+  }
+
+  private checkPetRevival() {
+    if (this.pet.hp > 0) return;
+    // Check for phoenix feather in inventory
+    const featherIdx = this.inventory.items.findIndex(i => i.nameId === "phoenix feather");
+    if (featherIdx >= 0) {
+      this.inventory.remove(featherIdx);
+      this.pet.hp = Math.ceil(this.pet.maxHp * 0.5);
+      this.petAlive = true;
+      sfx.petEvolve();
+      this.msg(t("petRevive"), "pet");
+    } else {
+      sfx.petDied();
+      this.petAlive = false;
+      this.msg(t("petDied"), "pet");
+    }
+  }
+
+  private tryPetAbility() {
+    if (!this.petAlive) return;
+    const stage = PET_STAGES[this.petStage];
+
+    // Bark: fear adjacent monsters when 2+ enemies adjacent (stage 1+)
+    if (stage.abilities.includes("bark") && (this.petAbilityCooldowns["bark"] ?? 0) <= 0) {
+      let adjCount = 0;
+      for (const m of this.monsters) {
+        if (m.nameId !== "shopkeeper" && Math.abs(m.x - this.pet.x) + Math.abs(m.y - this.pet.y) <= 1) adjCount++;
+      }
+      if (adjCount >= 2) {
+        sfx.petBark();
+        for (const m of this.monsters) {
+          if (m.nameId !== "shopkeeper" && Math.abs(m.x - this.pet.x) + Math.abs(m.y - this.pet.y) <= 1) {
+            m.fearTurns = (m.fearTurns ?? 0) + 2;
+          }
+        }
+        this.msg(t("petBark"), "pet");
+        this.petAbilityCooldowns["bark"] = 8;
+        return;
+      }
+    }
+
+    // Pounce: leap to target 2 tiles away (stage 2+)
+    if (stage.abilities.includes("pounce") && (this.petAbilityCooldowns["pounce"] ?? 0) <= 0) {
+      for (const m of this.monsters) {
+        if (m.nameId === "shopkeeper") continue;
+        const dist = Math.abs(m.x - this.pet.x) + Math.abs(m.y - this.pet.y);
+        if (dist === 2 && this.cells[m.y][m.x].visible) {
+          // Leap to adjacent tile near target
+          const dx = m.x - this.pet.x;
+          const dy = m.y - this.pet.y;
+          const sx = dx === 0 ? 0 : dx > 0 ? 1 : -1;
+          const sy = dy === 0 ? 0 : dy > 0 ? 1 : -1;
+          const nx = this.pet.x + sx;
+          const ny = this.pet.y + sy;
+          if (this.isPassable(nx, ny) && !this.monsterAt(nx, ny) && !(nx === this.player.x && ny === this.player.y)) {
+            this.pet.x = nx;
+            this.pet.y = ny;
+            const pounceDmg = Math.max(1, Math.ceil(this.pet.attack * 1.5) - m.defense);
+            m.hp -= pounceDmg;
+            sfx.monsterHit();
+            this.msg(t("petPounce")(name(m.nameId), pounceDmg), "pet");
+            if (m.hp <= 0) {
+              sfx.monsterDie();
+              this.msg(t("petKills")(name(m.nameId)), "pet");
+              this.kills++;
+              this.gold += rand(1, 3);
+              this.gainXp(Math.ceil((m.xpValue ?? 5) / 2));
+              this.monsters = this.monsters.filter(mm => mm !== m);
+            }
+            this.petAbilityCooldowns["pounce"] = 12;
+            return;
+          }
+        }
+      }
+    }
+  }
+
   private processPet() {
     if (!this.petAlive) return;
+
+    // Try abilities first
+    this.tryPetAbility();
+
+    // Stay command: only self-heal
+    if (this.petCommand === "stay") {
+      if (this.turnCount % this.petHealInterval === 0 && this.pet.hp < this.pet.maxHp) {
+        const healed = Math.min(this.petHealAmount, this.pet.maxHp - this.pet.hp);
+        this.pet.hp += healed;
+        sfx.petHeal();
+        this.msg(t("petHeals")(healed), "pet");
+      }
+      return;
+    }
+
+    const pursueRange = this.petCommand === "aggressive" ? 8 : 4;
+    const leashRange = this.petCommand === "aggressive" ? 10 : 5;
 
     const dx = this.player.x - this.pet.x;
     const dy = this.player.y - this.pet.y;
     const dist = Math.abs(dx) + Math.abs(dy);
 
-    // Attack adjacent monster, or move toward a nearby one
+    // Attack adjacent monster
     const adjacent = this.monsters.find(
-      (m) => m.nameId !== "shopkeeper" && Math.abs(m.x - this.pet.x) + Math.abs(m.y - this.pet.y) <= 1
+      (m) => m.nameId !== "shopkeeper" && !m.disguised && Math.abs(m.x - this.pet.x) + Math.abs(m.y - this.pet.y) <= 1
     );
     if (adjacent) {
       this.petCombat(adjacent);
       return;
     }
 
-    // Seek nearest visible monster within 4 tiles
+    // Seek nearest visible monster within pursue range
     const nearby = this.monsters
-      .filter((m) => m.nameId !== "shopkeeper" && this.cells[m.y][m.x].visible && Math.abs(m.x - this.pet.x) + Math.abs(m.y - this.pet.y) <= 4)
+      .filter((m) => m.nameId !== "shopkeeper" && !m.disguised && this.cells[m.y][m.x].visible && Math.abs(m.x - this.pet.x) + Math.abs(m.y - this.pet.y) <= pursueRange)
       .sort((a, b) => (Math.abs(a.x - this.pet.x) + Math.abs(a.y - this.pet.y)) - (Math.abs(b.x - this.pet.x) + Math.abs(b.y - this.pet.y)));
-    if (nearby.length > 0 && dist <= 5) {
+    if (nearby.length > 0 && dist <= leashRange) {
       this.movePetToward(nearby[0].x, nearby[0].y);
       return;
     }
@@ -1018,7 +1375,12 @@ export class GameState {
   }
 
   private petCombat(target: Creature) {
-    const dmg = Math.max(1, this.pet.attack - target.defense + rand(-2, 2));
+    let atkVal = this.pet.attack;
+    if (this.petStage >= 3) {
+      const petDist = Math.abs(target.x - this.pet.x) + Math.abs(target.y - this.pet.y);
+      if (petDist <= 1) atkVal += 2;
+    }
+    const dmg = Math.max(1, atkVal - target.defense + rand(-2, 2));
     target.hp -= dmg;
     sfx.monsterHit();
     this.msg(t("petAttacks")(name(target.nameId), dmg), "pet");
@@ -1054,15 +1416,57 @@ export class GameState {
     }
   }
 
+  cyclePetCommand() {
+    if (this.gameOver) return;
+    const commands: PetCommand[] = ["follow", "stay", "aggressive"];
+    const idx = commands.indexOf(this.petCommand);
+    this.petCommand = commands[(idx + 1) % commands.length];
+    this.msg(t("petCommandChange")(this.petCommand), "pet");
+  }
+
   private combat(attacker: Creature, defender: Creature) {
-    const atkVal = attacker === this.player ? this.getEffectiveAttack() : attacker.attack;
+    let atkVal = attacker === this.player ? this.getEffectiveAttack() : attacker.attack;
     const defVal = defender === this.player ? this.getEffectiveDefense() : defender.defense;
+
+    // Wolf pack bonus: +1 ATK per adjacent wolf
+    if (attacker.packBonus) {
+      let packCount = 0;
+      for (const other of this.monsters) {
+        if (other !== attacker && other.nameId === "wolf" && Math.abs(other.x - attacker.x) + Math.abs(other.y - attacker.y) <= 1) {
+          packCount++;
+        }
+      }
+      if (packCount > 0) {
+        atkVal += packCount;
+        this.msg(t("wolfPackBonus")(packCount), "combat");
+      }
+    }
+
+    // Pack Leader passive: monsters adjacent to pet take +2 damage from player
+    if (attacker === this.player && this.petAlive && this.petStage >= 3) {
+      const petDist = Math.abs(defender.x - this.pet.x) + Math.abs(defender.y - this.pet.y);
+      if (petDist <= 1) atkVal += 2;
+    }
+
     const dmg = Math.max(1, atkVal - defVal + rand(-2, 2));
     defender.hp -= dmg;
 
     if (attacker === this.player) {
       sfx.playerAttack();
       this.msg(t("youHit")(name(defender.nameId), dmg), "combat");
+      // Crystal elemental reflects damage to player
+      if (defender.reflectDamage && defender.hp > 0) {
+        const reflDmg = Math.max(1, Math.ceil(dmg * defender.reflectDamage / 100));
+        this.player.hp -= reflDmg;
+        sfx.crystalReflect();
+        this.msg(t("crystalReflect")(reflDmg), "combat");
+        if (this.player.hp <= 0) {
+          sfx.playerDied();
+          this.msg(t("youDied"), "combat");
+          this.gameOver = true;
+          return;
+        }
+      }
       // Weapon enchantment effects
       const wep = this.inventory.equipped.weapon;
       if (wep?.enchantment) {
@@ -1090,7 +1494,7 @@ export class GameState {
         if (defender.splits) {
           this.splitMonster(defender);
         }
-        this.checkSkeletonReassembly(defender);
+        this.handleMonsterDeath(defender);
         this.dropLoot(defender);
         this.monsters = this.monsters.filter((m) => m !== defender);
       }
@@ -1120,6 +1524,26 @@ export class GameState {
       if (armResult.broken) this.msg(t("itemBreaks")(name(armResult.broken)), "system");
       else if (armResult.warning) this.msg(t("durabilityWarning"), "system");
 
+      // Crystal elemental: reflect 30% damage
+      if (attacker.reflectDamage) {
+        const reflDmg = Math.max(1, Math.ceil(dmg * attacker.reflectDamage / 100));
+        this.player.hp -= reflDmg;
+        sfx.crystalReflect();
+        this.msg(t("crystalReflect")(reflDmg), "combat");
+        if (this.player.hp <= 0) {
+          sfx.playerDied();
+          this.msg(t("youDied"), "combat");
+          this.gameOver = true;
+        }
+      }
+
+      // Vampire: life steal
+      if (attacker.lifeSteal) {
+        const steal = attacker.lifeSteal;
+        attacker.hp = Math.min(attacker.maxHp, attacker.hp + steal);
+        this.msg(t("vampireDrain")(steal), "combat");
+      }
+
       // Monster special abilities on attack
       if (attacker.nameId === "snake") {
         this.statusMgr.add("poison", 3, 1);
@@ -1138,6 +1562,9 @@ export class GameState {
         this.player.maxHp = Math.max(5, this.player.maxHp - 1);
         if (this.player.hp > this.player.maxHp) this.player.hp = this.player.maxHp;
         this.msg(t("wraithDrain"), "combat");
+      } else if (attacker.nameId === "spider queen") {
+        this.statusMgr.add("poison", 3, 1);
+        this.msg(t("spiderQueenPoison"), "combat");
       }
 
       // Swift armor: immunity to slow
@@ -1367,12 +1794,18 @@ export class GameState {
       rat: 0.2, goblin: 0.35, snake: 0.4, ogre: 0.6,
       ghost: 0.3, archer: 0.4, slime: 0.15, "small slime": 0.1,
       dragon: 1.0, lich: 1.0, skeleton: 0.15, wraith: 0.35, "fire imp": 0.3,
+      wolf: 0.2, spider: 0.25, mimic: 0.8, golem: 0.5,
+      vampire: 0.45, mushroom: 0.15, "crystal elemental": 0.5,
+      bat: 0.15, necromancer: 0.4, hydra: 0.6,
+      "ember sprite": 0.3, phantom: 0.35,
+      "spider queen": 1.0, "necromancer lord": 1.0,
     };
     const chance = dropChance[monster.nameId] ?? 0.3;
     if (Math.random() >= chance) return;
 
     // Bosses and depth 4+ monsters have chance to drop enchanted equipment
-    const isBoss = monster.nameId === "dragon" || monster.nameId === "lich";
+    const isBoss = monster.nameId === "dragon" || monster.nameId === "lich" ||
+                   monster.nameId === "spider queen" || monster.nameId === "necromancer lord";
     if ((isBoss || (this.depth >= 4 && Math.random() < 0.15)) && Math.random() < (isBoss ? 1.0 : 0.5)) {
       const enchItem = this.makeEnchantedItem(monster.x, monster.y);
       this.items.push(enchItem);
@@ -1398,13 +1831,13 @@ export class GameState {
     const armorEnchants: EnchantType[] = ["thorns", "swift"];
     const isWeapon = Math.random() < 0.5;
     if (isWeapon) {
-      const baseId = this.depth >= 6 ? "long sword" : "short sword";
+      const baseId = this.depth >= 8 ? "war hammer" : this.depth >= 6 ? "battle axe" : this.depth >= 4 ? "long sword" : "short sword";
       const item = this.makeItem(x, y, baseId);
       const etype = weaponEnchants[rand(0, weaponEnchants.length - 1)];
       item.enchantment = { type: etype, level: rand(1, 2) };
       return item;
     } else {
-      const baseId = this.depth >= 6 ? "chain mail" : "leather armor";
+      const baseId = this.depth >= 8 ? "plate armor" : this.depth >= 6 ? "chain mail" : "leather armor";
       const item = this.makeItem(x, y, baseId);
       const etype = armorEnchants[rand(0, armorEnchants.length - 1)];
       item.enchantment = { type: etype, level: rand(1, 2) };
@@ -1568,6 +2001,14 @@ export class GameState {
           this.msg(t("youDied"), "combat");
           this.gameOver = true;
         }
+      } else if (item.nameId === "potion of speed") {
+        sfx.pickupPotion();
+        this.statusMgr.add("speed", item.value, 0);
+        this.msg(t("drinkSpeed"), "pickup");
+      } else if (item.nameId === "potion of invisibility") {
+        sfx.pickupPotion();
+        this.statusMgr.add("invisible", item.value, 0);
+        this.msg(t("drinkInvisibility"), "pickup");
       } else {
         sfx.pickupPotion();
         const healed = Math.min(item.value, this.player.maxHp - this.player.hp);
@@ -1656,6 +2097,11 @@ export class GameState {
         this.identifiedTypes.add("curse:" + arm.nameId);
         if (arm.cursed) this.msg(t("identifyCursed")(name(arm.nameId)), "combat");
       }
+      const ring = this.inventory.equipped.ring;
+      if (ring) {
+        this.identifiedTypes.add("curse:" + ring.nameId);
+        if (ring.cursed) this.msg(t("identifyCursed")(name(ring.nameId)), "combat");
+      }
       if (!identifiedAny && !wep && !arm) {
         this.msg(t("identifyNothing"), "system");
       }
@@ -1675,6 +2121,8 @@ export class GameState {
       let removed = false;
       if (wep?.cursed) { wep.cursed = false; removed = true; }
       if (arm?.cursed) { arm.cursed = false; removed = true; }
+      const ring = this.inventory.equipped.ring;
+      if (ring?.cursed) { ring.cursed = false; removed = true; }
       sfx.pickupPotion();
       this.msg(removed ? t("removeCurse") : t("removeCurseNone"), removed ? "pickup" : "system");
     } else if (item.nameId === "scroll of mapping") {
@@ -1686,6 +2134,10 @@ export class GameState {
       }
       sfx.pickupPotion();
       this.msg(t("useMapping"), "pickup");
+    } else if (item.nameId === "scroll of protection") {
+      this.statusMgr.add("protection", 15, 3);
+      sfx.pickupPotion();
+      this.msg(t("useProtection"), "pickup");
     }
     this.inventory.remove(index);
     this.showInventory = false;
@@ -1752,7 +2204,9 @@ export class GameState {
 
   /** Get effective defense including equipment */
   getEffectiveDefense(): number {
-    return this.player.defense + this.inventory.getArmorBonus();
+    let def = this.player.defense + this.inventory.getArmorBonus();
+    if (this.statusMgr.has("protection")) def += 3;
+    return def;
   }
 
   private processMonsters() {
@@ -1765,44 +2219,70 @@ export class GameState {
           this.msg(t("monsterDies")(name(m.nameId)), "combat");
           this.kills++;
           this.gainXp(m.xpValue ?? 5);
+          this.handleMonsterDeath(m);
           this.dropLoot(m);
           this.monsters = this.monsters.filter(mm => mm !== m);
         }
       }
       if (m.fearTurns && m.fearTurns > 0) m.fearTurns--;
       if (m.stunTurns && m.stunTurns > 0) m.stunTurns--;
+      // Hydra regen
+      if (m.regenRate && m.hp < m.maxHp && m.hp > 0) {
+        m.hp = Math.min(m.maxHp, m.hp + m.regenRate);
+      }
     }
 
-    for (const m of this.monsters) {
-      if (m.nameId === "shopkeeper") continue;
-      if (!this.cells[m.y][m.x].visible) continue;
+    const processOnce = (m: Creature) => {
+      if (m.nameId === "shopkeeper") return;
+      if (!this.cells[m.y][m.x].visible) return;
 
       // Stunned: skip turn
-      if (m.stunTurns && m.stunTurns > 0) continue;
+      if (m.stunTurns && m.stunTurns > 0) return;
 
       // Water slow: skip this monster's turn
       if (m.waterSlow) {
         m.waterSlow = false;
-        continue;
+        return;
       }
+
+      // Golem: acts every other turn
+      if (m.slowMonster && this.turnCount % 2 === 0) return;
+
+      // Mimic: skip processing while disguised; reveal when player adjacent
+      if (m.disguised) {
+        const dToPlayer = Math.abs(this.player.x - m.x) + Math.abs(this.player.y - m.y);
+        if (dToPlayer <= 1) {
+          m.disguised = false;
+          m.disguiseItem = undefined;
+          sfx.monsterHit();
+          this.msg(t("mimicReveal"), "combat");
+        }
+        return;
+      }
+
+      // Stationary monsters (mushroom) don't move
+      if (m.stationary) return;
 
       const dxP = this.player.x - m.x;
       const dyP = this.player.y - m.y;
       const distP = Math.abs(dxP) + Math.abs(dyP);
 
+      // Invisible player: monsters can't see
+      const playerInvisible = this.statusMgr.has("invisible") && distP > 1;
+
       // Grass concealment: player on grass is invisible to monsters >1 cell away
-      const playerConcealed = this.isConcealed(this.player) && distP > 1;
+      const playerConcealed = (this.isConcealed(this.player) && distP > 1) || playerInvisible;
 
       // Fear: flee from player
       if (m.fearTurns && m.fearTurns > 0) {
         this.fleeFromPlayer(m, dxP, dyP);
-        continue;
+        return;
       }
 
       // Goblin flee: runs away when low HP
       if (m.nameId === "goblin" && m.hp <= Math.ceil(m.maxHp * 0.3)) {
         this.fleeFromPlayer(m, dxP, dyP);
-        continue;
+        return;
       }
 
       // Check if adjacent to pet — 50% chance to attack pet instead
@@ -1810,11 +2290,120 @@ export class GameState {
         const distPet = Math.abs(this.pet.x - m.x) + Math.abs(this.pet.y - m.y);
         if (distPet <= 1 && Math.random() < 0.5) {
           this.monsterAttackPet(m);
-          continue;
+          return;
         }
       }
 
-      if (playerConcealed) continue;
+      if (playerConcealed) return;
+
+      // Phantom: teleport every 2 turns
+      if (m.nameId === "phantom") {
+        if (m.teleportCd !== undefined) m.teleportCd--;
+        if (m.teleportCd !== undefined && m.teleportCd <= 0) {
+          // Teleport to random visible floor tile
+          for (let a = 0; a < 50; a++) {
+            const rx = rand(1, MAP_W - 2);
+            const ry = rand(1, MAP_H - 2);
+            if (this.isPassable(rx, ry) && !this.monsterAt(rx, ry) &&
+                !(rx === this.player.x && ry === this.player.y) &&
+                this.cells[ry][rx].visible) {
+              m.x = rx;
+              m.y = ry;
+              break;
+            }
+          }
+          m.teleportCd = 2;
+        }
+      }
+
+      // Spider: place Web tile near player every 3 turns
+      if (m.nameId === "spider" && distP <= 3 && this.hasLOS(m.x, m.y, this.player.x, this.player.y)) {
+        if (m.webCharge !== undefined) m.webCharge--;
+        if (m.webCharge !== undefined && m.webCharge <= 0) {
+          // Place web at player's tile or adjacent
+          const webX = this.player.x;
+          const webY = this.player.y;
+          if (this.cells[webY][webX].tile === Tile.Floor) {
+            this.cells[webY][webX].tile = Tile.Web;
+            this.msg(t("spiderWeb"), "combat");
+          }
+          m.webCharge = 3;
+        }
+      }
+
+      // Necromancer: summon skeleton every 4 turns
+      if (m.nameId === "necromancer" && distP <= 8) {
+        if (m.summonCooldown !== undefined) m.summonCooldown--;
+        if (m.summonCooldown !== undefined && m.summonCooldown <= 0) {
+          this.necromancerSummon(m);
+          m.summonCooldown = 4;
+        }
+      }
+
+      // Spider Queen boss AI
+      if (m.nameId === "spider queen" && distP <= 8 && this.hasLOS(m.x, m.y, this.player.x, this.player.y)) {
+        if (m.summonCooldown !== undefined) m.summonCooldown--;
+        if (m.summonCooldown !== undefined && m.summonCooldown <= 0) {
+          this.spiderQueenSummon(m);
+          m.summonCooldown = 3;
+        }
+        // Place web near player
+        if (Math.random() < 0.3) {
+          const dirs = [[-1,0],[1,0],[0,-1],[0,1]];
+          for (const [ddx, ddy] of dirs) {
+            const wx = this.player.x + ddx, wy = this.player.y + ddy;
+            if (wx >= 0 && wx < MAP_W && wy >= 0 && wy < MAP_H && this.cells[wy][wx].tile === Tile.Floor) {
+              this.cells[wy][wx].tile = Tile.Web;
+              break;
+            }
+          }
+        }
+      }
+
+      // Necromancer Lord boss AI
+      if (m.nameId === "necromancer lord" && distP <= 8 && this.hasLOS(m.x, m.y, this.player.x, this.player.y)) {
+        if (m.summonCooldown !== undefined) m.summonCooldown--;
+        const phase2 = m.hp <= m.maxHp / 2;
+        if (m.summonCooldown !== undefined && m.summonCooldown <= 0) {
+          if (phase2) {
+            this.necroLordSummonWraith(m);
+          } else {
+            this.lichSummon(m); // reuse skeleton summon
+          }
+          m.summonCooldown = 3;
+        }
+        // Ranged dark bolt
+        if (distP > 1 && distP <= 6) {
+          if (phase2 && Math.random() < 0.3) {
+            this.statusMgr.add("blind", 2, 0);
+            this.msg(t("necroLordBlind"), "combat");
+          }
+          const dmg = Math.max(1, m.attack - this.getEffectiveDefense() + rand(-2, 2));
+          this.player.hp -= dmg;
+          sfx.playerHurt();
+          this.msg(t("archerShoot")(name(m.nameId), dmg), "combat");
+          if (this.player.hp <= 0) {
+            sfx.playerDied();
+            this.msg(t("youDied"), "combat");
+            this.gameOver = true;
+          }
+          // Phase 2: teleport away if adjacent
+          if (phase2 && distP <= 1) {
+            for (let a = 0; a < 50; a++) {
+              const rx = rand(m.x - 5, m.x + 5);
+              const ry = rand(m.y - 5, m.y + 5);
+              if (rx >= 0 && rx < MAP_W && ry >= 0 && ry < MAP_H &&
+                  this.isPassable(rx, ry) && !this.monsterAt(rx, ry) &&
+                  !(rx === this.player.x && ry === this.player.y)) {
+                m.x = rx; m.y = ry;
+                this.msg(t("necroLordTeleport"), "combat");
+                break;
+              }
+            }
+          }
+          return;
+        }
+      }
 
       // Lich: summon skeletons and cast blind at range
       if (m.nameId === "lich" && distP <= 8 && !playerConcealed && this.hasLOS(m.x, m.y, this.player.x, this.player.y)) {
@@ -1838,7 +2427,7 @@ export class GameState {
             this.msg(t("youDied"), "combat");
             this.gameOver = true;
           }
-          continue;
+          return;
         }
       }
 
@@ -1863,17 +2452,18 @@ export class GameState {
           this.msg(t("youDied"), "combat");
           this.gameOver = true;
         }
-        continue;
+        return;
       }
 
-      // Archer: ranged attack from distance (with LOS check)
-      if (m.ranged && m.nameId !== "lich" && m.nameId !== "fire imp" && distP > 1 && distP <= 6 && !playerConcealed && this.hasLOS(m.x, m.y, this.player.x, this.player.y)) {
+      // Archer/Necromancer: ranged attack from distance (with LOS check)
+      if (m.ranged && m.nameId !== "lich" && m.nameId !== "fire imp" && m.nameId !== "necromancer lord" &&
+          distP > 1 && distP <= 6 && !playerConcealed && this.hasLOS(m.x, m.y, this.player.x, this.player.y)) {
         this.rangedAttack(m);
         // Degrade armor when player is hit by ranged
         const armR2 = this.inventory.degradeArmor();
         if (armR2.broken) this.msg(t("itemBreaks")(name(armR2.broken)), "system");
         else if (armR2.warning) this.msg(t("durabilityWarning"), "system");
-        continue;
+        return;
       }
 
       if (distP <= 1) {
@@ -1881,6 +2471,138 @@ export class GameState {
         if (this.gameOver) return;
       } else if (distP < 12) {
         this.chasePlayer(m, dxP, dyP);
+      }
+    };
+
+    for (const m of [...this.monsters]) {
+      if (m.hp <= 0) continue; // may have died in status processing
+      processOnce(m);
+      if (this.gameOver) return;
+      // Double-act monsters get a second action
+      if (m.doubleAct && m.hp > 0 && !m.disguised) {
+        processOnce(m);
+        if (this.gameOver) return;
+      }
+    }
+  }
+
+  /** Handle on-death effects for monsters (mushroom poison cloud, ember sprite explosion) */
+  private handleMonsterDeath(m: Creature) {
+    this.checkSkeletonReassembly(m);
+
+    // Mushroom: poison cloud on death (2-tile AoE)
+    if (m.poisonCloud) {
+      for (const other of [...this.monsters]) {
+        if (other === m) continue;
+        const dist = Math.abs(other.x - m.x) + Math.abs(other.y - m.y);
+        if (dist <= 2) {
+          other.hp -= 3;
+          if (other.hp <= 0) {
+            this.monsters = this.monsters.filter(mm => mm !== other);
+            this.kills++;
+            this.gainXp(other.xpValue ?? 5);
+          }
+        }
+      }
+      // Poison player if nearby
+      const playerDist = Math.abs(this.player.x - m.x) + Math.abs(this.player.y - m.y);
+      if (playerDist <= 2) {
+        this.statusMgr.add("poison", 3, 2);
+        this.msg(t("mushroomCloud"), "combat");
+      }
+      // Poison pet if nearby
+      if (this.petAlive) {
+        const petDist = Math.abs(this.pet.x - m.x) + Math.abs(this.pet.y - m.y);
+        if (petDist <= 2) {
+          this.pet.hp -= 3;
+          if (this.pet.hp <= 0) {
+            this.checkPetRevival();
+          }
+        }
+      }
+    }
+
+    // Ember sprite: explode for AoE damage on death
+    if (m.explodeOnDeath) {
+      const aoe = m.explodeOnDeath;
+      sfx.explosion();
+      this.msg(t("emberExplode"), "combat");
+      // Damage player if adjacent
+      const pDist = Math.abs(this.player.x - m.x) + Math.abs(this.player.y - m.y);
+      if (pDist <= 1) {
+        this.player.hp -= aoe;
+        if (this.player.hp <= 0) {
+          sfx.playerDied();
+          this.msg(t("youDied"), "combat");
+          this.gameOver = true;
+        }
+      }
+      // Ignite adjacent grass
+      for (const [ddx, ddy] of DIRS4) {
+        const gx = m.x + ddx, gy = m.y + ddy;
+        if (gx >= 0 && gx < MAP_W && gy >= 0 && gy < MAP_H && this.cells[gy][gx].tile === Tile.Grass) {
+          this.cells[gy][gx].tile = Tile.BurningGrass;
+          this.burningTiles.set(`${gx},${gy}`, 5);
+        }
+      }
+    }
+  }
+
+  private necromancerSummon(necro: Creature) {
+    const dirs = [[-1,0],[1,0],[0,-1],[0,1]];
+    for (const [dx, dy] of dirs) {
+      const nx = necro.x + dx, ny = necro.y + dy;
+      if (this.isPassable(nx, ny) && !this.monsterAt(nx, ny) &&
+          !(nx === this.player.x && ny === this.player.y)) {
+        const scale = 1 + (this.depth - 1) * 0.12;
+        this.monsters.push({
+          x: nx, y: ny, char: "z", color: "#cccccc", nameId: "skeleton",
+          hp: Math.ceil(9 * scale), maxHp: Math.ceil(9 * scale),
+          attack: Math.ceil(4 * scale), defense: Math.ceil(2 * scale),
+          xpValue: Math.ceil(12 * scale),
+        });
+        this.msg(t("necromancerSummon"), "combat");
+        return;
+      }
+    }
+  }
+
+  private spiderQueenSummon(queen: Creature) {
+    const dirs = [[-1,0],[1,0],[0,-1],[0,1]];
+    let spawned = 0;
+    for (const [dx, dy] of dirs) {
+      if (spawned >= 2) break;
+      const nx = queen.x + dx, ny = queen.y + dy;
+      if (this.isPassable(nx, ny) && !this.monsterAt(nx, ny) &&
+          !(nx === this.player.x && ny === this.player.y)) {
+        const scale = 1 + (this.depth - 1) * 0.12;
+        this.monsters.push({
+          x: nx, y: ny, char: "x", color: "#d3d3d3", nameId: "spider",
+          hp: Math.ceil(4 * scale), maxHp: Math.ceil(4 * scale),
+          attack: Math.ceil(2 * scale), defense: 0,
+          xpValue: Math.ceil(5 * scale), webCharge: 3,
+        });
+        spawned++;
+      }
+    }
+    if (spawned > 0) this.msg(t("spiderQueenSummon"), "combat");
+  }
+
+  private necroLordSummonWraith(lord: Creature) {
+    const dirs = [[-1,0],[1,0],[0,-1],[0,1]];
+    for (const [dx, dy] of dirs) {
+      const nx = lord.x + dx, ny = lord.y + dy;
+      if (this.isPassable(nx, ny, true) && !this.monsterAt(nx, ny) &&
+          !(nx === this.player.x && ny === this.player.y)) {
+        const scale = 1 + (this.depth - 1) * 0.12;
+        this.monsters.push({
+          x: nx, y: ny, char: "W", color: "#6a0dad", nameId: "wraith",
+          hp: Math.ceil(12 * scale), maxHp: Math.ceil(12 * scale),
+          attack: Math.ceil(5 * scale), defense: Math.ceil(1 * scale),
+          passWall: true, xpValue: Math.ceil(18 * scale),
+        });
+        this.msg(t("necroLordSummon"), "combat");
+        return;
       }
     }
   }
@@ -1916,9 +2638,7 @@ export class GameState {
     sfx.petHurt();
     this.msg(t("petHurt")(name(attacker.nameId), dmg), "pet");
     if (this.pet.hp <= 0) {
-      sfx.petDied();
-      this.petAlive = false;
-      this.msg(t("petDied"), "pet");
+      this.checkPetRevival();
     }
   }
 
@@ -1950,8 +2670,9 @@ export class GameState {
       tryY() || tryX();
     }
 
-    // Water slow for monsters entering water (ghosts immune)
-    if (!m.passWall && (m.x !== prevX || m.y !== prevY) && this.cells[m.y][m.x].tile === Tile.Water) {
+    // Water/Web slow for monsters entering water or web (ghosts immune)
+    if (!m.passWall && (m.x !== prevX || m.y !== prevY) &&
+        (this.cells[m.y][m.x].tile === Tile.Water || this.cells[m.y][m.x].tile === Tile.Web)) {
       m.waterSlow = true;
     }
   }

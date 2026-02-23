@@ -14,6 +14,10 @@ export enum Tile {
   DeepWater,
   Lava,
   BurningGrass,
+  Web,
+  Mushroom,
+  Stalactite,
+  BoneFloor,
 }
 
 export interface MapCell {
@@ -96,8 +100,8 @@ export function generateDungeon(depth = 1, ascending = false): DungeonResult {
     }
   }
 
-  // Boss room on depth 5 (mid-boss) and 10 (final boss)
-  if ((depth === 5 || depth >= 10) && rooms.length > 1) {
+  // Boss room on depth 3, 5, 7, and 10
+  if ((depth === 3 || depth === 5 || depth === 7 || depth >= 10) && rooms.length > 1) {
     rooms[rooms.length - 1].tag = "boss";
   }
 
@@ -153,7 +157,7 @@ export function generateDungeon(depth = 1, ascending = false): DungeonResult {
     const fy = floodQ[fqi++];
     for (const [ddx, ddy] of [[-1,0],[1,0],[0,-1],[0,1]]) {
       const nx = fx + ddx, ny = fy + ddy;
-      if (nx >= 0 && nx < MAP_W && ny >= 0 && ny < MAP_H && !reachable[ny][nx] && cells[ny][nx].tile !== Tile.Wall && cells[ny][nx].tile !== Tile.DeepWater) {
+      if (nx >= 0 && nx < MAP_W && ny >= 0 && ny < MAP_H && !reachable[ny][nx] && cells[ny][nx].tile !== Tile.Wall && cells[ny][nx].tile !== Tile.DeepWater && cells[ny][nx].tile !== Tile.Stalactite) {
         reachable[ny][nx] = true;
         floodQ.push(nx, ny);
       }
@@ -234,8 +238,57 @@ export function generateDungeon(depth = 1, ascending = false): DungeonResult {
     }
   }
 
-  // Scatter lava pools (depth 8+)
-  if (depth >= 8) {
+  // Cavern zone (depth 4-6): extra water, stalactites in corridors
+  if (depth >= 4 && depth <= 6) {
+    for (let i = 0; i < rand(2, 4); i++) {
+      const cx = rand(3, MAP_W - 4);
+      const cy = rand(3, MAP_H - 4);
+      const r = rand(1, 2);
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          const nx = cx + dx, ny = cy + dy;
+          if (ny > 0 && ny < MAP_H - 1 && nx > 0 && nx < MAP_W - 1) {
+            if (cells[ny][nx].tile === Tile.Floor && Math.random() < 0.4) {
+              cells[ny][nx].tile = Tile.Water;
+            }
+          }
+        }
+      }
+    }
+    // Scatter stalactites in corridors (1-wide floor tiles)
+    for (let y = 1; y < MAP_H - 1; y++) {
+      for (let x = 1; x < MAP_W - 1; x++) {
+        if (cells[y][x].tile === Tile.Floor && Math.random() < 0.02) {
+          let wallCount = 0;
+          if (cells[y-1][x].tile === Tile.Wall) wallCount++;
+          if (cells[y+1][x].tile === Tile.Wall) wallCount++;
+          if (cells[y][x-1].tile === Tile.Wall) wallCount++;
+          if (cells[y][x+1].tile === Tile.Wall) wallCount++;
+          if (wallCount >= 2) cells[y][x].tile = Tile.Stalactite;
+        }
+      }
+    }
+  }
+
+  // Necropolis zone (depth 7-9): bone floors in rooms, lava from depth 7
+  if (depth >= 7 && depth <= 9) {
+    for (let ri = 1; ri < rooms.length; ri++) {
+      const rm = rooms[ri];
+      if (rm.tag === "boss") continue;
+      if (Math.random() < 0.4) {
+        for (let ry = rm.y; ry < rm.y + rm.h; ry++) {
+          for (let rx = rm.x; rx < rm.x + rm.w; rx++) {
+            if (cells[ry][rx].tile === Tile.Floor && Math.random() < 0.3) {
+              cells[ry][rx].tile = Tile.BoneFloor;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Scatter lava pools (depth 7+ in necropolis, was 8+)
+  if (depth >= 7) {
     for (let i = 0; i < rand(1, 2); i++) {
       const cx = rand(3, MAP_W - 4);
       const cy = rand(3, MAP_H - 4);

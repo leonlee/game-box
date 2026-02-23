@@ -5,11 +5,12 @@ export const MAX_INVENTORY = 8;
 export interface EquipSlots {
   weapon: Item | null;
   armor: Item | null;
+  ring: Item | null;
 }
 
 export class Inventory {
   items: Item[] = [];
-  equipped: EquipSlots = { weapon: null, armor: null };
+  equipped: EquipSlots = { weapon: null, armor: null, ring: null };
 
   isFull(): boolean {
     return this.items.length >= MAX_INVENTORY;
@@ -102,8 +103,16 @@ export class Inventory {
     return { broken: null, warning: false };
   }
 
+  getRingEffect(): string | null {
+    const ring = this.equipped.ring;
+    if (!ring) return null;
+    if (ring.nameId === "ring of regeneration") return "regeneration";
+    if (ring.nameId === "ring of perception") return "perception";
+    return null;
+  }
+
   clear() {
     this.items = [];
-    this.equipped = { weapon: null, armor: null };
+    this.equipped = { weapon: null, armor: null, ring: null };
   }
 }

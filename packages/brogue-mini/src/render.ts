@@ -65,6 +65,10 @@ const TILE_STYLES: Record<Tile, TileStyle> = {
   [Tile.DeepWater]: { char: "~", fg: "#1155aa", bg: "#050f2a" },
   [Tile.Lava]: { char: "~", fg: "#ff4400", bg: "#330a00" },
   [Tile.BurningGrass]: { char: '"', fg: "#ff6600", bg: "#1a0a00" },
+  [Tile.Web]: { char: "*", fg: "#ffffff", bg: "#0c0c18" },
+  [Tile.Mushroom]: { char: "\u2663", fg: "#8b4513", bg: "#0c0c18" },
+  [Tile.Stalactite]: { char: "^", fg: "#5a6a7a", bg: "#0c0c18" },
+  [Tile.BoneFloor]: { char: ",", fg: "#888888", bg: "#0c0c18" },
 };
 
 // Revealed trap styles (shown after stepping on)
@@ -73,6 +77,24 @@ const TRAP_REVEALED_STYLES: Partial<Record<Tile, TileStyle>> = {
   [Tile.TrapTeleport]: { char: "^", fg: "#9b59b6", bg: "#0c0c18" },
   [Tile.TrapAlarm]: { char: "^", fg: "#f39c12", bg: "#0c0c18" },
 };
+
+function getZoneTileStyles(depth: number): Record<Tile, TileStyle> {
+  const base = { ...TILE_STYLES };
+  if (depth >= 4 && depth <= 6) {
+    // Cavern zone: blue-gray walls
+    base[Tile.Wall] = { char: "#", fg: "#3a4a5a", bg: "#0a1020" };
+    base[Tile.Floor] = { char: "\u00B7", fg: "#1a2a3a", bg: "#080e18" };
+  } else if (depth >= 7 && depth <= 9) {
+    // Necropolis zone: dark red walls
+    base[Tile.Wall] = { char: "#", fg: "#6a3030", bg: "#1a0808" };
+    base[Tile.Floor] = { char: "\u00B7", fg: "#3a1a1a", bg: "#0e0606" };
+  } else if (depth >= 10) {
+    // Lich's Domain: purple-black walls
+    base[Tile.Wall] = { char: "#", fg: "#5a3a6a", bg: "#100a16" };
+    base[Tile.Floor] = { char: "\u00B7", fg: "#2a1a3a", bg: "#0a0610" };
+  }
+  return base;
+}
 
 function applyAlpha(hex: string, alpha: number): string {
   const r = parseInt(hex.slice(1, 3), 16);
@@ -108,7 +130,7 @@ export function toggleHelp() {
 }
 
 export function nextHelpPage() {
-  helpPage = helpPage === 0 ? 1 : 0;
+  helpPage = (helpPage + 1) % 3;
 }
 
 export function render(ctx: CanvasRenderingContext2D, game: GameState) {
@@ -121,13 +143,15 @@ export function render(ctx: CanvasRenderingContext2D, game: GameState) {
   ctx.textBaseline = "top";
   ctx.textAlign = "center";
 
+  const zoneTiles = getZoneTileStyles(game.depth);
+
   for (let y = 0; y < MAP_H; y++) {
     for (let x = 0; x < MAP_W; x++) {
       const cell = game.cells[y][x];
       if (!cell.revealed) continue;
 
       const revealedTrap = cell.trapRevealed && TRAP_REVEALED_STYLES[cell.tile];
-      const style = revealedTrap || TILE_STYLES[cell.tile];
+      const style = revealedTrap || zoneTiles[cell.tile];
       const dim = cell.visible ? 1.0 : 0.3;
 
       ctx.fillStyle = dimColor(style.bg, dim);
@@ -161,6 +185,12 @@ export function render(ctx: CanvasRenderingContext2D, game: GameState) {
   // Monsters (with animation interpolation)
   for (const m of game.monsters) {
     if (game.cells[m.y][m.x].visible) {
+      // Disguised mimics render as their fake item
+      if (m.disguised && m.disguiseItem) {
+        ctx.fillStyle = m.disguiseItem.color;
+        ctx.fillText(m.disguiseItem.char, MAP_OX + m.x * CELL_W + CELL_W / 2, m.y * CELL_H + 2);
+        continue;
+      }
       const [rx, ry] = game.animations.getPosition(m.x, m.y);
       ctx.fillStyle = m.color;
       ctx.fillText(m.char, MAP_OX + rx * CELL_W + CELL_W / 2, ry * CELL_H + 2);
@@ -307,7 +337,7 @@ function renderHelp(ctx: CanvasRenderingContext2D) {
   ctx.fillRect(bx, by, boxW, boxH);
   ctx.strokeRect(bx, by, boxW, boxH);
 
-  const pageLabel = helpPage === 0 ? t("helpPageControls") : t("helpPageSymbols");
+  const pageLabel = helpPage === 0 ? t("helpPageControls") : helpPage === 1 ? t("helpPageSymbols") : t("helpPageSymbols") + " 2";
   ctx.font = TITLE_FONT;
   ctx.textAlign = "center";
   ctx.fillStyle = "#ffd700";
@@ -324,7 +354,10 @@ function renderHelp(ctx: CanvasRenderingContext2D) {
       ctx.fillText(lines[i], bx + 24, contentY + i * 20);
     }
   } else {
-    const symbols: readonly { char: string; color: string; desc: string }[] = t("helpSymbols");
+    const allSymbols: readonly { char: string; color: string; desc: string }[] = t("helpSymbols");
+    const pageSize = 28; // max symbols per page (2 columns x 14 rows)
+    const offset = helpPage === 1 ? 0 : pageSize;
+    const symbols = allSymbols.slice(offset, offset + pageSize);
     const col1X = bx + 24;
     const col2X = bx + boxW / 2 + 10;
     const half = Math.ceil(symbols.length / 2);
@@ -514,8 +547,15 @@ function renderPanel(ctx: CanvasRenderingContext2D, game: GameState) {
   if (game.petAlive) {
     const petBarW = 80;
     drawBar(ctx, nextX, row1Y, petBarW, hpBarH, game.pet.hp, game.pet.maxHp, "#f4a460", "#cd853f", "#a0522d");
-    barLabel(ctx, `d:${game.pet.hp}/${game.pet.maxHp}`, nextX + 3, row1Y - 1);
+    barLabel(ctx, `${game.pet.char}:${game.pet.hp}/${game.pet.maxHp}`, nextX + 3, row1Y - 1);
     nextX += petBarW + 8;
+
+    // Pet command indicator
+    ctx.font = UI_FONT;
+    ctx.fillStyle = game.petCommand === "aggressive" ? "#e74c3c" : game.petCommand === "stay" ? "#3498db" : "#2ecc71";
+    const cmdLabel = game.petCommand === "aggressive" ? "[A]" : game.petCommand === "stay" ? "[S]" : "[F]";
+    ctx.fillText(cmdLabel, nextX, row1Y - 1);
+    nextX += 24;
   }
 
   const hungerBarW = 55;
@@ -557,6 +597,8 @@ function renderPanel(ctx: CanvasRenderingContext2D, game: GameState) {
       ctx.fillText(label, abX, row3Y);
       abX += 75;
     }
+    ctx.fillStyle = "#66ccff";
+    ctx.fillText("c:Pet", abX, row3Y);
   }
 
   // Hints (right-aligned)
@@ -596,6 +638,8 @@ function renderMinimap(ctx: CanvasRenderingContext2D, game: GameState) {
       else if (cell.tile === Tile.Water || cell.tile === Tile.DeepWater) color = "#246";
       else if (cell.tile === Tile.Lava) color = "#630";
       else if (cell.tile === Tile.BurningGrass) color = "#630";
+      else if (cell.tile === Tile.Web) color = "#444";
+      else if (cell.tile === Tile.BoneFloor) color = "#222";
       else color = "#1a1a2e";
 
       ctx.fillStyle = color;

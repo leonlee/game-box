@@ -194,6 +194,9 @@ function handleAction(action: string) {
     case "buyNo":
       if (game.pendingBuy) game.declineBuy();
       break;
+    case "petcmd":
+      game.cyclePetCommand();
+      break;
   }
 }
 
@@ -480,6 +483,10 @@ document.addEventListener("keydown", (e) => {
     case " ":
     case ".":
       game.wait();
+      break;
+
+    case "c":
+      game.cyclePetCommand();
       break;
 
     default:

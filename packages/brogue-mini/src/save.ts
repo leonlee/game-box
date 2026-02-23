@@ -4,7 +4,7 @@ import { StatusEffect } from "./effects";
 
 const SAVE_KEY = "brogue-mini-save";
 const LEADERBOARD_KEY = "brogue-mini-leaderboard";
-const SAVE_VERSION = 2;
+const SAVE_VERSION = 3;
 
 interface SaveData {
   version: number;
@@ -24,6 +24,7 @@ interface SaveData {
   inventoryItems: Item[];
   equippedWeapon: Item | null;
   equippedArmor: Item | null;
+  equippedRing: Item | null;
   statusEffects: StatusEffect[];
   kills: number;
   ascending: boolean;
@@ -35,6 +36,9 @@ interface SaveData {
   scrollLabels: Record<string, string>;
   deadSkeletons: { x: number; y: number; turnsLeft: number; hp: number; maxHp: number; atk: number; def: number; xp: number }[];
   burningTiles: [string, number][];
+  petStage: number;
+  petCommand: string;
+  petAbilityCooldowns: Record<string, number>;
 }
 
 export interface LeaderboardEntry {
@@ -65,6 +69,7 @@ export function saveGame(game: GameState): void {
     inventoryItems: game.inventory.items,
     equippedWeapon: game.inventory.equipped.weapon,
     equippedArmor: game.inventory.equipped.armor,
+    equippedRing: game.inventory.equipped.ring,
     statusEffects: game.statusMgr.effects,
     kills: game.kills,
     ascending: game.ascending,
@@ -76,6 +81,9 @@ export function saveGame(game: GameState): void {
     scrollLabels: { ...game.scrollLabels },
     deadSkeletons: game.deadSkeletons,
     burningTiles: [...game.burningTiles.entries()],
+    petStage: game.petStage,
+    petCommand: game.petCommand,
+    petAbilityCooldowns: { ...game.petAbilityCooldowns },
   };
   try {
     localStorage.setItem(SAVE_KEY, JSON.stringify(data));
@@ -117,6 +125,7 @@ export function loadGame(game: GameState): boolean {
     game.inventory.items = data.inventoryItems;
     game.inventory.equipped.weapon = data.equippedWeapon;
     game.inventory.equipped.armor = data.equippedArmor;
+    game.inventory.equipped.ring = data.equippedRing ?? null;
     game.statusMgr.effects = data.statusEffects;
     game.kills = data.kills;
     game.ascending = data.ascending;
@@ -128,6 +137,9 @@ export function loadGame(game: GameState): boolean {
     game.scrollLabels = data.scrollLabels;
     game.deadSkeletons = data.deadSkeletons;
     game.burningTiles = new Map(data.burningTiles);
+    game.petStage = (data.petStage ?? 0) as any;
+    game.petCommand = (data.petCommand ?? "follow") as any;
+    game.petAbilityCooldowns = data.petAbilityCooldowns ?? {};
     game.gameOver = false;
     game.won = false;
 

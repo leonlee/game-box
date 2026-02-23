@@ -118,4 +118,34 @@ export const sfx = {
     play(500, "triangle", 0.06, 0.06);
     play(350, "triangle", 0.1, 0.06);
   },
+
+  petBark() {
+    play(500, "square", 0.06, 0.1);
+    play(600, "square", 0.06, 0.08);
+    noise(0.08, 0.06);
+  },
+
+  petEvolve() {
+    play(440, "sine", 0.1, 0.1);
+    setTimeout(() => play(554, "sine", 0.1, 0.1), 80);
+    setTimeout(() => play(659, "sine", 0.1, 0.1), 160);
+    setTimeout(() => play(880, "sine", 0.2, 0.12), 240);
+  },
+
+  bossAppear() {
+    play(150, "sawtooth", 0.3, 0.12, 50);
+    setTimeout(() => play(100, "sawtooth", 0.4, 0.1), 200);
+    noise(0.15, 0.08);
+  },
+
+  crystalReflect() {
+    play(800, "sine", 0.08, 0.08);
+    play(1200, "sine", 0.06, 0.06);
+  },
+
+  explosion() {
+    noise(0.2, 0.12);
+    play(100, "sawtooth", 0.2, 0.1, -50);
+    setTimeout(() => play(80, "sawtooth", 0.15, 0.08), 100);
+  },
 };
