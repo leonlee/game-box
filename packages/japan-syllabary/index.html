@@ -11,18 +11,31 @@
       display: flex;
       justify-content: center;
       align-items: center;
-      min-height: 100vh;
+      min-height: 100dvh;
       touch-action: none;
       overflow: hidden;
+    }
+    .app-shell {
+      width: 100%;
+      height: 100dvh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 8px max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
     }
     canvas {
       border-radius: 8px;
       box-shadow: 0 4px 24px rgba(0,0,0,0.15);
+      display: block;
+      max-width: 100%;
+      max-height: 100%;
     }
   </style>
 </head>
 <body>
-  <canvas id="game"></canvas>
+  <div class="app-shell">
+    <canvas id="game"></canvas>
+  </div>
   <script src="dist/game.js"></script>
 </body>
 </html>

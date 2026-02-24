@@ -6,6 +6,9 @@ import { hasSave, loadGame, addLeaderboardEntry } from "./save";
 const canvas = document.getElementById("game") as HTMLCanvasElement;
 let ctx = initCanvas(canvas);
 const game = new GameState();
+const appShell = document.querySelector(".app-shell") as HTMLElement | null;
+const touchControls = document.getElementById("touch-controls") as HTMLElement | null;
+const kbControls = document.querySelector(".controls") as HTMLElement | null;
 
 // Try loading a saved game
 if (hasSave()) {
@@ -23,19 +26,33 @@ function isTouchDevice(): boolean {
   return "ontouchstart" in window || navigator.maxTouchPoints > 0;
 }
 
+function elementHeightWithMargins(el: HTMLElement | null): number {
+  if (!el) return 0;
+  const style = window.getComputedStyle(el);
+  const mt = Number.parseFloat(style.marginTop) || 0;
+  const mb = Number.parseFloat(style.marginBottom) || 0;
+  return el.offsetHeight + mt + mb;
+}
+
 // --- Responsive canvas ---
 function resizeCanvas() {
   const dpr = window.devicePixelRatio || 1;
   const isTouch = isTouchDevice();
-  const vw = window.innerWidth;
-  const vh = window.innerHeight;
-
-  // On touch devices, reserve bottom portion for controls
-  const controlsHeight = isTouch ? 120 : 0;
-  const availH = vh - controlsHeight;
+  const shellRect = appShell?.getBoundingClientRect();
+  const availW = Math.max(1, Math.floor(shellRect?.width ?? window.innerWidth));
+  const shellH = Math.max(1, Math.floor(shellRect?.height ?? window.innerHeight));
   const aspect = CANVAS_W / CANVAS_H;
 
-  let cssW = vw;
+  // Toggle controls first so reserved height is measured from active UI.
+  if (touchControls) touchControls.classList.toggle("visible", isTouch);
+  if (kbControls) kbControls.style.display = isTouch ? "none" : "";
+
+  const controlsHeight = isTouch
+    ? elementHeightWithMargins(touchControls)
+    : elementHeightWithMargins(kbControls);
+  const availH = Math.max(1, shellH - controlsHeight - 4);
+
+  let cssW = availW;
   let cssH = cssW / aspect;
 
   if (cssH > availH) {
@@ -43,23 +60,19 @@ function resizeCanvas() {
     cssW = cssH * aspect;
   }
 
-  canvas.style.width = cssW + "px";
-  canvas.style.height = cssH + "px";
+  canvas.style.width = Math.floor(cssW) + "px";
+  canvas.style.height = Math.floor(cssH) + "px";
   canvas.width = CANVAS_W * dpr;
   canvas.height = CANVAS_H * dpr;
 
   ctx = canvas.getContext("2d")!;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.scale(dpr, dpr);
-
-  // Show/hide controls based on device
-  const touchControls = document.getElementById("touch-controls");
-  const kbControls = document.querySelector(".controls") as HTMLElement | null;
-  if (touchControls) touchControls.classList.toggle("visible", isTouch);
-  if (kbControls) kbControls.style.display = isTouch ? "none" : "";
 }
 
 resizeCanvas();
 window.addEventListener("resize", resizeCanvas);
+window.visualViewport?.addEventListener("resize", resizeCanvas);
 window.addEventListener("orientationchange", () => setTimeout(resizeCanvas, 100));
 
 // --- Auto-explore ---

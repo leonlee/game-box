@@ -4,30 +4,33 @@ import { ensureAudioContext } from './audio';
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;
 let ctx = canvas.getContext('2d')!;
+const appShell = document.querySelector('.app-shell') as HTMLElement | null;
 
 function resizeCanvas() {
   const dpr = window.devicePixelRatio || 1;
-  const vw = window.innerWidth;
-  const vh = window.innerHeight;
+  const shellW = Math.max(1, Math.floor(appShell?.clientWidth ?? window.innerWidth));
+  const shellH = Math.max(1, Math.floor(appShell?.clientHeight ?? window.innerHeight));
   const aspect = W / H;
 
-  let cssW = vw;
+  let cssW = shellW;
   let cssH = cssW / aspect;
-  if (cssH > vh) {
-    cssH = vh;
+  if (cssH > shellH) {
+    cssH = shellH;
     cssW = cssH * aspect;
   }
 
-  canvas.style.width = cssW + 'px';
-  canvas.style.height = cssH + 'px';
+  canvas.style.width = Math.floor(cssW) + 'px';
+  canvas.style.height = Math.floor(cssH) + 'px';
   canvas.width = W * dpr;
   canvas.height = H * dpr;
   ctx = canvas.getContext('2d')!;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.scale(dpr, dpr);
 }
 
 resizeCanvas();
 window.addEventListener('resize', resizeCanvas);
+window.visualViewport?.addEventListener('resize', resizeCanvas);
 window.addEventListener('orientationchange', () => setTimeout(resizeCanvas, 100));
 
 const game = new GameState();

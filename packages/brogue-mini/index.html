@@ -12,11 +12,21 @@
       background: #000;
       display: flex;
       justify-content: center;
-      align-items: flex-start;
-      min-height: 100vh;
-      flex-direction: column;
+      align-items: center;
+      min-height: 100dvh;
       touch-action: none;
       overflow: hidden;
+    }
+    .app-shell {
+      width: 100%;
+      max-width: 960px;
+      height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      gap: 8px;
+      padding: 8px 8px max(8px, env(safe-area-inset-bottom));
     }
     canvas {
       border: 1px solid #1a1a2e;
@@ -27,19 +37,19 @@
     .controls {
       color: #555;
       font: 8px 'Press Start 2P', monospace;
-      margin-top: 8px;
       text-align: center;
       width: 100%;
       line-height: 1.8;
+      padding: 0 4px;
     }
     /* Touch controls container */
     #touch-controls {
       display: none;
       width: 100%;
       max-width: 800px;
-      margin: 4px auto 0;
+      margin: 0 auto;
       padding: 0 4px;
-      gap: 8px;
+      gap: clamp(4px, 1.5vw, 8px);
       justify-content: space-between;
       align-items: center;
     }
@@ -54,17 +64,19 @@
       flex-shrink: 0;
     }
     .dpad button {
-      width: 48px;
-      height: 48px;
+      width: clamp(36px, 10vw, 48px);
+      height: clamp(36px, 10vw, 48px);
       border: 1px solid #333;
       background: rgba(30, 30, 50, 0.85);
       color: #aaa;
-      font: 16px 'Press Start 2P', monospace;
+      font: clamp(11px, 2.8vw, 16px) 'Press Start 2P', monospace;
       border-radius: 6px;
       touch-action: none;
       -webkit-tap-highlight-color: transparent;
       user-select: none;
-      line-height: 48px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
     }
     .dpad button:active {
       background: rgba(60, 60, 100, 0.9);
@@ -82,12 +94,12 @@
       flex-shrink: 0;
     }
     .actions button {
-      min-width: 56px;
-      height: 48px;
+      min-width: clamp(50px, 14vw, 62px);
+      height: clamp(36px, 10vw, 48px);
       border: 1px solid #333;
       background: rgba(30, 30, 50, 0.85);
       color: #aaa;
-      font: 8px 'Press Start 2P', monospace;
+      font: clamp(6px, 2vw, 8px) 'Press Start 2P', monospace;
       border-radius: 6px;
       touch-action: none;
       -webkit-tap-highlight-color: transparent;
@@ -102,32 +114,34 @@
   </style>
 </head>
 <body>
-  <canvas id="game"></canvas>
-  <div class="controls">
-    Move: arrows / hjkl / yubn (diagonal) &nbsp;|&nbsp;
-    Descend: &gt; &nbsp;|&nbsp;
-    Wait: space &nbsp;|&nbsp;
-    Restart: r &nbsp;|&nbsp;
-    Language: F1
-  </div>
-  <div id="touch-controls">
-    <div class="dpad">
-      <button data-dir="-1,-1">\</button>
-      <button data-dir="0,-1">^</button>
-      <button data-dir="1,-1">/</button>
-      <button data-dir="-1,0">&lt;</button>
-      <button class="center-btn" data-action="wait">.</button>
-      <button data-dir="1,0">&gt;</button>
-      <button data-dir="-1,1">/</button>
-      <button data-dir="0,1">v</button>
-      <button data-dir="1,1">\</button>
+  <div class="app-shell">
+    <canvas id="game"></canvas>
+    <div class="controls">
+      Move: arrows / hjkl / yubn (diagonal) &nbsp;|&nbsp;
+      Descend: &gt; &nbsp;|&nbsp;
+      Wait: space &nbsp;|&nbsp;
+      Restart: r &nbsp;|&nbsp;
+      Language: F1
     </div>
-    <div class="actions">
-      <button data-action="stairs">&gt; Stair</button>
-      <button data-action="inventory">[ Inv</button>
-      <button data-action="pickup">g Pick</button>
-      <button data-action="auto">x Auto</button>
-      <button data-action="petcmd">c Pet</button>
+    <div id="touch-controls">
+      <div class="dpad">
+        <button data-dir="-1,-1">\</button>
+        <button data-dir="0,-1">^</button>
+        <button data-dir="1,-1">/</button>
+        <button data-dir="-1,0">&lt;</button>
+        <button class="center-btn" data-action="wait">.</button>
+        <button data-dir="1,0">&gt;</button>
+        <button data-dir="-1,1">/</button>
+        <button data-dir="0,1">v</button>
+        <button data-dir="1,1">\</button>
+      </div>
+      <div class="actions">
+        <button data-action="stairs">&gt; Stair</button>
+        <button data-action="inventory">[ Inv</button>
+        <button data-action="pickup">g Pick</button>
+        <button data-action="auto">x Auto</button>
+        <button data-action="petcmd">c Pet</button>
+      </div>
     </div>
   </div>
   <script src="dist/game.js"></script>
