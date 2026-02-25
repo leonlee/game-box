@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Skywake Chronicle</title>
+  <style>
+    :root {
+      --bg: #10141c;
+      --panel: #1b2431;
+      --panel-2: #222f41;
+      --line: #34465f;
+      --text: #d8e1ec;
+      --muted: #97a7bb;
+      --accent: #e3b86c;
+      --ok: #79c08c;
+      --warn: #f0a66a;
+      --bad: #e57f7f;
+      --chip: #2a3a50;
+      --shadow: 0 16px 40px rgba(0, 0, 0, 0.32);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100dvh;
+      color: var(--text);
+      font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+      background:
+        radial-gradient(1200px 700px at -10% -10%, rgba(82, 123, 184, 0.35), transparent 65%),
+        radial-gradient(900px 500px at 110% 0%, rgba(230, 160, 90, 0.2), transparent 60%),
+        linear-gradient(180deg, #10141c 0%, #0e131a 55%, #0d1118 100%);
+      padding: max(12px, env(safe-area-inset-top)) 12px max(14px, env(safe-area-inset-bottom));
+    }
+
+    #app {
+      max-width: 1160px;
+      margin: 0 auto;
+    }
+
+    .shell {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .topbar {
+      background: linear-gradient(180deg, rgba(28, 40, 56, 0.9), rgba(21, 31, 45, 0.9));
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+      box-shadow: var(--shadow);
+    }
+
+    .topbar h1 {
+      margin: 0;
+      font-size: clamp(1rem, 2.7vw, 1.4rem);
+      letter-spacing: 0.04em;
+      color: #f0d9aa;
+    }
+
+    .topbar p {
+      margin: 5px 0 0;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    .resource-pill {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 8px;
+      font-size: 0.86rem;
+    }
+
+    .resource-pill span {
+      border: 1px solid var(--line);
+      background: rgba(20, 29, 41, 0.75);
+      border-radius: 999px;
+      padding: 6px 10px;
+      white-space: nowrap;
+    }
+
+    .banner {
+      background: rgba(42, 59, 81, 0.85);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px 12px;
+      color: #dfe9f7;
+      font-size: 0.92rem;
+    }
+
+    .tabs {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .tabs button,
+    .inline-buttons button,
+    .touch-item button,
+    .foot button {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--panel);
+      color: var(--text);
+      min-height: 44px;
+      padding: 9px 12px;
+      font-size: 0.9rem;
+      cursor: pointer;
+      touch-action: manipulation;
+    }
+
+    .tabs button.on,
+    .inline-buttons button.on {
+      border-color: #8b6a37;
+      background: linear-gradient(180deg, #3f3320, #2e261a);
+      color: #ffe3b3;
+    }
+
+    .primary {
+      background: linear-gradient(180deg, #5f4b2f, #4d3f29);
+      border-color: #8b6a37;
+      color: #ffe8bf;
+      font-weight: 700;
+    }
+
+    .danger {
+      background: #3f2222;
+      border-color: #784040;
+      color: #f4c2c2;
+    }
+
+    main {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .panel-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .panel {
+      background: linear-gradient(180deg, rgba(28, 39, 53, 0.9), rgba(24, 33, 46, 0.9));
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 12px;
+      box-shadow: var(--shadow);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .panel h3 {
+      margin: 0;
+      color: #f0d9aa;
+      letter-spacing: 0.03em;
+      font-size: 1rem;
+    }
+
+    .hint {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.84rem;
+      line-height: 1.45;
+    }
+
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+
+    select,
+    textarea,
+    input[type="range"] {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: rgba(16, 23, 33, 0.95);
+      color: var(--text);
+      padding: 10px;
+      font-size: 0.92rem;
+    }
+
+    textarea {
+      font-family: "Consolas", "Menlo", monospace;
+      line-height: 1.45;
+      resize: vertical;
+      min-height: 220px;
+    }
+
+    .range-meta {
+      font-size: 0.82rem;
+      color: var(--muted);
+      margin-top: -2px;
+    }
+
+    .toolbar,
+    .row,
+    .filter-row,
+    .meter-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .filter-row {
+      align-items: flex-end;
+      flex-wrap: wrap;
+    }
+
+    .filter-row label {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      min-width: min(220px, 100%);
+      font-size: 0.78rem;
+      color: var(--muted);
+    }
+
+    .inline-buttons {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .inline-buttons.wrap button {
+      flex: 1;
+      min-width: 90px;
+    }
+
+    .touch-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: 52dvh;
+      overflow: auto;
+      overscroll-behavior: contain;
+    }
+
+    .touch-list.compact {
+      max-height: none;
+    }
+
+    .touch-item {
+      border: 1px solid var(--line);
+      background: rgba(18, 27, 38, 0.88);
+      border-radius: 10px;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      min-height: 48px;
+    }
+
+    .touch-item.success { border-color: rgba(121, 192, 140, 0.45); }
+    .touch-item.partial { border-color: rgba(240, 166, 106, 0.5); }
+    .touch-item.failed { border-color: rgba(229, 127, 127, 0.5); }
+    .touch-item.active { outline: 1px solid #8b6a37; }
+
+    .touch-item p {
+      margin: 0;
+      line-height: 1.4;
+      color: #d6deea;
+      font-size: 0.88rem;
+    }
+
+    .touch-item .tags {
+      font-size: 0.78rem;
+      color: #f0ba82;
+    }
+
+    .touch-item pre {
+      margin: 0;
+      white-space: pre-wrap;
+      font-size: 0.75rem;
+      color: #b4c4d7;
+      font-family: "Consolas", "Menlo", monospace;
+    }
+
+    .chip {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 2px 8px;
+      font-size: 0.72rem;
+      color: #b9cade;
+      background: var(--chip);
+      width: fit-content;
+    }
+
+    .chip.done {
+      border-color: rgba(121, 192, 140, 0.8);
+      color: #bfe7cb;
+      background: rgba(46, 78, 56, 0.7);
+    }
+
+    .card-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .touch-card {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: rgba(17, 25, 35, 0.9);
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      min-height: 138px;
+    }
+
+    .touch-card h4 {
+      margin: 0;
+      font-size: 0.95rem;
+      color: #f6dcac;
+    }
+
+    .meter-row {
+      align-items: center;
+      font-size: 0.74rem;
+      color: var(--muted);
+    }
+
+    .meter {
+      flex: 1;
+      height: 8px;
+      border-radius: 999px;
+      background: #0d141d;
+      border: 1px solid #2b3b52;
+      overflow: hidden;
+    }
+
+    .meter i {
+      display: block;
+      height: 100%;
+      background: linear-gradient(90deg, #5f7ab7, #92ace4);
+    }
+
+    .meter.resource i {
+      background: linear-gradient(90deg, #8a5fb7, #bc9ee8);
+    }
+
+    .meta {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.78rem;
+    }
+
+    .errors {
+      margin: 0;
+      padding-left: 18px;
+      color: #f4b7b7;
+      font-size: 0.84rem;
+      line-height: 1.5;
+    }
+
+    .foot {
+      display: flex;
+      justify-content: flex-end;
+    }
+
+    @media (max-width: 1000px) {
+      .panel-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .card-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 680px) {
+      body {
+        padding-left: 8px;
+        padding-right: 8px;
+      }
+
+      .topbar {
+        flex-direction: column;
+      }
+
+      .resource-pill {
+        justify-content: flex-start;
+      }
+
+      .tabs {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .card-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .touch-list {
+        max-height: 48dvh;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <script src="dist/game.js"></script>
+</body>
+</html>

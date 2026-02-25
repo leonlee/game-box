@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "conflict_policy": "mixed_party_preempt_character_merge",
+  "fallback_by_role": {
+    "tank": "defend_stance",
+    "dps": "basic_attack",
+    "support": "create_advantage"
+  },
+  "rules": [
+    {
+      "id": "rule_low_stress_retreat",
+      "scope": "party",
+      "trigger": "on_turn_start",
+      "priority": 100,
+      "when": {
+        "all": [
+          { "fact": "ally_min_stress_pct", "op": "<=", "value": 25 },
+          { "fact": "combat_is_boss", "op": "==", "value": false }
+        ]
+      },
+      "then": { "action": "retreat_combat" },
+      "cooldown_turns": 0,
+      "enabled": true
+    },
+    {
+      "id": "rule_break_armor",
+      "scope": "character",
+      "trigger": "on_turn_start",
+      "priority": 80,
+      "when": {
+        "any": [
+          { "fact": "enemy_has_aspect", "op": "contains", "value": "装甲厚重" },
+          { "fact": "enemy_is_elite", "op": "==", "value": true }
+        ]
+      },
+      "then": { "action": "create_advantage", "params": { "aspect": "关节破绽" } },
+      "cooldown_turns": 1,
+      "enabled": true
+    }
+  ]
+}

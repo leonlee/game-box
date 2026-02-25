@@ -1,0 +1,413 @@
+import {
+  Action,
+  ConditionExpr,
+  ConditionLeaf,
+  Fact,
+  Operator,
+  Role,
+  RuleScope,
+  TacticsProfile,
+  TacticsRule,
+  Trigger
+} from "./types";
+
+export const RULE_ID_PATTERN = /^[a-z][a-z0-9_]{2,63}$/;
+
+export const ACTIONS: Action[] = [
+  "attack_skill",
+  "defend_stance",
+  "create_advantage",
+  "overcome_obstacle",
+  "use_consumable",
+  "save_resource_mode",
+  "retreat_combat",
+  "retreat_explore",
+  "use_key_item_slot",
+  "basic_attack",
+  "wait",
+  "swap_target",
+  "mark_priority_target",
+  "cleanse_ally"
+];
+
+export const ACTIONS_BY_SCOPE: Record<RuleScope, readonly Action[]> = {
+  party: ["retreat_combat", "retreat_explore", "use_key_item_slot"],
+  character: [
+    "attack_skill",
+    "defend_stance",
+    "create_advantage",
+    "overcome_obstacle",
+    "use_consumable",
+    "save_resource_mode",
+    "basic_attack",
+    "wait",
+    "swap_target",
+    "mark_priority_target",
+    "cleanse_ally"
+  ]
+};
+
+export const FACTS: Fact[] = [
+  "self_stress_pct",
+  "self_has_consequence",
+  "self_resource_pct",
+  "ally_min_stress_pct",
+  "party_consumable_count",
+  "party_has_item",
+  "enemy_has_aspect",
+  "enemy_count_alive",
+  "enemy_is_elite",
+  "scene_has_aspect",
+  "node_type",
+  "time_window",
+  "fate_point_count",
+  "turn_index",
+  "rule_triggered_recently",
+  "combat_is_boss"
+];
+
+export const LIMITS = {
+  maxRulesPerConfig: 64,
+  maxConditionsPerRule: 12,
+  maxConditionDepth: 5,
+  maxConditionGroupSize: 8,
+  maxPriority: 1000,
+  maxCooldownTurns: 99
+} as const;
+
+type ValueKind = "number" | "boolean" | "string" | "string[]";
+
+const NUMERIC_OPERATORS: Operator[] = ["==", "!=", "<", "<=", ">", ">="];
+const BOOLEAN_OPERATORS: Operator[] = ["==", "!="];
+const STRING_OPERATORS: Operator[] = ["==", "!=", "contains", "in"];
+
+const FACT_VALUE_RULES: Record<Fact, { kinds: ValueKind[]; operators: Operator[] }> = {
+  self_stress_pct: { kinds: ["number"], operators: NUMERIC_OPERATORS },
+  self_has_consequence: { kinds: ["boolean"], operators: BOOLEAN_OPERATORS },
+  self_resource_pct: { kinds: ["number"], operators: NUMERIC_OPERATORS },
+  ally_min_stress_pct: { kinds: ["number"], operators: NUMERIC_OPERATORS },
+  party_consumable_count: { kinds: ["number"], operators: NUMERIC_OPERATORS },
+  party_has_item: { kinds: ["string", "string[]"], operators: STRING_OPERATORS },
+  enemy_has_aspect: { kinds: ["string", "string[]"], operators: STRING_OPERATORS },
+  enemy_count_alive: { kinds: ["number"], operators: NUMERIC_OPERATORS },
+  enemy_is_elite: { kinds: ["boolean"], operators: BOOLEAN_OPERATORS },
+  scene_has_aspect: { kinds: ["string", "string[]"], operators: STRING_OPERATORS },
+  node_type: { kinds: ["string", "string[]"], operators: STRING_OPERATORS },
+  time_window: { kinds: ["string", "string[]"], operators: STRING_OPERATORS },
+  fate_point_count: { kinds: ["number"], operators: NUMERIC_OPERATORS },
+  turn_index: { kinds: ["number"], operators: NUMERIC_OPERATORS },
+  rule_triggered_recently: { kinds: ["boolean"], operators: BOOLEAN_OPERATORS },
+  combat_is_boss: { kinds: ["boolean"], operators: BOOLEAN_OPERATORS }
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isConditionLeaf(value: ConditionExpr): value is ConditionLeaf {
+  return isRecord(value) && "fact" in value && "op" in value && "value" in value;
+}
+
+function compare(actual: unknown, op: Operator, expected: unknown): boolean {
+  if (op === "contains") {
+    if (typeof actual === "string" && typeof expected === "string") {
+      return actual.includes(expected);
+    }
+    if (Array.isArray(actual) && typeof expected === "string") {
+      return actual.includes(expected);
+    }
+    return false;
+  }
+
+  if (op === "in") {
+    if (Array.isArray(expected) && typeof actual === "string") {
+      return expected.includes(actual);
+    }
+    return false;
+  }
+
+  if (typeof actual === "number" && typeof expected === "number") {
+    if (op === "==") return actual === expected;
+    if (op === "!=") return actual !== expected;
+    if (op === "<") return actual < expected;
+    if (op === "<=") return actual <= expected;
+    if (op === ">") return actual > expected;
+    if (op === ">=") return actual >= expected;
+    return false;
+  }
+
+  if (typeof actual === "boolean" && typeof expected === "boolean") {
+    if (op === "==") return actual === expected;
+    if (op === "!=") return actual !== expected;
+    return false;
+  }
+
+  if (typeof actual === "string" && typeof expected === "string") {
+    if (op === "==") return actual === expected;
+    if (op === "!=") return actual !== expected;
+    return false;
+  }
+
+  return false;
+}
+
+export function evaluateCondition(
+  expr: ConditionExpr,
+  facts: Partial<Record<Fact, unknown>>
+): boolean {
+  if (isConditionLeaf(expr)) {
+    const actual = facts[expr.fact];
+    return compare(actual, expr.op, expr.value);
+  }
+
+  if ("all" in expr) {
+    return expr.all.every((child) => evaluateCondition(child, facts));
+  }
+
+  if ("any" in expr) {
+    return expr.any.some((child) => evaluateCondition(child, facts));
+  }
+
+  return !evaluateCondition(expr.not, facts);
+}
+
+function sortRules(rules: TacticsRule[]): TacticsRule[] {
+  return [...rules].sort((a, b) => b.priority - a.priority || a.id.localeCompare(b.id));
+}
+
+export function selectPartyRule(
+  profile: TacticsProfile,
+  trigger: Trigger,
+  facts: Partial<Record<Fact, unknown>>,
+  cooldowns: Record<string, number>
+): TacticsRule | null {
+  const candidates = sortRules(
+    profile.rules.filter((rule) => rule.scope === "party" && rule.trigger === trigger && rule.enabled)
+  );
+
+  for (const rule of candidates) {
+    const cd = cooldowns[rule.id] ?? 0;
+    if (cd > 0) continue;
+    if (evaluateCondition(rule.when, facts)) {
+      return rule;
+    }
+  }
+  return null;
+}
+
+export function selectCharacterRule(
+  profile: TacticsProfile,
+  trigger: Trigger,
+  facts: Partial<Record<Fact, unknown>>,
+  cooldowns: Record<string, number>
+): TacticsRule | null {
+  const candidates = sortRules(
+    profile.rules.filter((rule) => rule.scope === "character" && rule.trigger === trigger && rule.enabled)
+  );
+
+  for (const rule of candidates) {
+    const cd = cooldowns[rule.id] ?? 0;
+    if (cd > 0) continue;
+    if (evaluateCondition(rule.when, facts)) {
+      return rule;
+    }
+  }
+  return null;
+}
+
+export function fallbackActionForRole(profile: TacticsProfile, role: Role): Action {
+  return profile.fallbackByRole[role];
+}
+
+function valueMatchesKind(value: unknown, kind: ValueKind): boolean {
+  if (kind === "number") return typeof value === "number" && Number.isFinite(value);
+  if (kind === "boolean") return typeof value === "boolean";
+  if (kind === "string") return typeof value === "string";
+  if (kind === "string[]") return Array.isArray(value) && value.every((it) => typeof it === "string");
+  return false;
+}
+
+function countLeaf(expr: ConditionExpr): number {
+  if (isConditionLeaf(expr)) return 1;
+  if ("all" in expr) return expr.all.reduce((sum, child) => sum + countLeaf(child), 0);
+  if ("any" in expr) return expr.any.reduce((sum, child) => sum + countLeaf(child), 0);
+  return countLeaf(expr.not);
+}
+
+function validateConditionDepth(expr: ConditionExpr, depth: number): boolean {
+  if (depth > LIMITS.maxConditionDepth) return false;
+  if (isConditionLeaf(expr)) return true;
+
+  if ("all" in expr) {
+    if (expr.all.length < 1 || expr.all.length > LIMITS.maxConditionGroupSize) return false;
+    return expr.all.every((child) => validateConditionDepth(child, depth + 1));
+  }
+
+  if ("any" in expr) {
+    if (expr.any.length < 1 || expr.any.length > LIMITS.maxConditionGroupSize) return false;
+    return expr.any.every((child) => validateConditionDepth(child, depth + 1));
+  }
+
+  return validateConditionDepth(expr.not, depth + 1);
+}
+
+function validateLeaf(leaf: ConditionLeaf): string | null {
+  if (!FACTS.includes(leaf.fact)) {
+    return `未知 fact: ${leaf.fact}`;
+  }
+
+  const rule = FACT_VALUE_RULES[leaf.fact];
+  if (!rule.operators.includes(leaf.op)) {
+    return `fact ${leaf.fact} 不支持运算符 ${leaf.op}`;
+  }
+
+  const typeOk = rule.kinds.some((kind) => valueMatchesKind(leaf.value, kind));
+  if (!typeOk) {
+    return `fact ${leaf.fact} 的 value 类型不合法，期望 ${rule.kinds.join("/")}`;
+  }
+
+  if (leaf.op === "in") {
+    if (!Array.isArray(leaf.value) || leaf.value.length === 0) {
+      return `运算符 in 需要非空字符串数组`;
+    }
+  }
+
+  return null;
+}
+
+function walkLeaves(expr: ConditionExpr, visitor: (leaf: ConditionLeaf) => void): void {
+  if (isConditionLeaf(expr)) {
+    visitor(expr);
+    return;
+  }
+
+  if ("all" in expr) {
+    expr.all.forEach((child) => walkLeaves(child, visitor));
+    return;
+  }
+
+  if ("any" in expr) {
+    expr.any.forEach((child) => walkLeaves(child, visitor));
+    return;
+  }
+
+  walkLeaves(expr.not, visitor);
+}
+
+export function validateRules(rules: unknown): string[] {
+  const errors: string[] = [];
+  if (!Array.isArray(rules)) {
+    return ["规则配置必须是数组"];
+  }
+
+  if (rules.length > LIMITS.maxRulesPerConfig) {
+    errors.push(`规则条数超过上限 ${LIMITS.maxRulesPerConfig}`);
+  }
+
+  const idSet = new Set<string>();
+
+  rules.forEach((item, index) => {
+    const path = `rules[${index}]`;
+    if (!isRecord(item)) {
+      errors.push(`${path} 不是对象`);
+      return;
+    }
+
+    const rule = item as Partial<TacticsRule>;
+
+    if (typeof rule.id !== "string" || !RULE_ID_PATTERN.test(rule.id)) {
+      errors.push(`${path}.id 不符合命名规则`);
+    } else if (idSet.has(rule.id)) {
+      errors.push(`${path}.id 重复: ${rule.id}`);
+    } else {
+      idSet.add(rule.id);
+    }
+
+    if (rule.scope !== "party" && rule.scope !== "character") {
+      errors.push(`${path}.scope 非法`);
+      return;
+    }
+
+    if (
+      rule.trigger !== "on_node_enter" &&
+      rule.trigger !== "on_turn_start" &&
+      rule.trigger !== "on_turn_end" &&
+      rule.trigger !== "on_combat_end"
+    ) {
+      errors.push(`${path}.trigger 非法`);
+    }
+
+    if (typeof rule.priority !== "number" || rule.priority < 0 || rule.priority > LIMITS.maxPriority) {
+      errors.push(`${path}.priority 超出范围`);
+    }
+
+    if (
+      typeof rule.cooldown_turns !== "number" ||
+      rule.cooldown_turns < 0 ||
+      rule.cooldown_turns > LIMITS.maxCooldownTurns
+    ) {
+      errors.push(`${path}.cooldown_turns 超出范围`);
+    }
+
+    if (typeof rule.enabled !== "boolean") {
+      errors.push(`${path}.enabled 必须是布尔值`);
+    }
+
+    if (!rule.when || !isRecord(rule.when)) {
+      errors.push(`${path}.when 缺失或格式错误`);
+    } else {
+      const condition = rule.when as ConditionExpr;
+      const leafCount = countLeaf(condition);
+      if (leafCount > LIMITS.maxConditionsPerRule) {
+        errors.push(`${path}.when 条件叶子数量超过上限 ${LIMITS.maxConditionsPerRule}`);
+      }
+
+      if (!validateConditionDepth(condition, 1)) {
+        errors.push(`${path}.when 条件树深度或分组超限`);
+      }
+
+      walkLeaves(condition, (leaf) => {
+        const leafError = validateLeaf(leaf);
+        if (leafError) errors.push(`${path}.when: ${leafError}`);
+      });
+    }
+
+    if (!rule.then || !isRecord(rule.then) || typeof rule.then.action !== "string") {
+      errors.push(`${path}.then 缺失或格式错误`);
+      return;
+    }
+
+    const action = rule.then.action as Action;
+    if (!ACTIONS.includes(action)) {
+      errors.push(`${path}.then.action 非法: ${action}`);
+      return;
+    }
+
+    const allowedActions = ACTIONS_BY_SCOPE[rule.scope];
+    if (!allowedActions.includes(action)) {
+      errors.push(`${path}.then.action 与 scope 不匹配`);
+    }
+  });
+
+  return errors;
+}
+
+export function tickRuleCooldowns(cooldowns: Record<string, number>): void {
+  Object.keys(cooldowns).forEach((key) => {
+    if (cooldowns[key] > 0) {
+      cooldowns[key] -= 1;
+    }
+  });
+}
+
+export function activateRuleCooldown(cooldowns: Record<string, number>, rule: TacticsRule): void {
+  if (rule.cooldown_turns > 0) {
+    cooldowns[rule.id] = rule.cooldown_turns;
+  }
+}
+
+export function getActiveProfile(saveProfiles: TacticsProfile[], profileId: string): TacticsProfile {
+  const hit = saveProfiles.find((profile) => profile.id === profileId);
+  if (hit) return hit;
+  return saveProfiles[0];
+}

@@ -5,8 +5,9 @@
   "scripts": {
     "build": "npm run build --workspaces",
     "build:brogue-mini": "npm run build -w packages/brogue-mini",
+    "build:skywake-chronicle": "npm run build -w packages/skywake-chronicle",
     "build:japan-syllabary": "npm run build -w packages/japan-syllabary",
     "build:our-japan": "npm run build -w packages/our-japan",
-    "typecheck": "node node_modules/.bin/tsc --noEmit -p packages/brogue-mini && node node_modules/.bin/tsc --noEmit -p packages/japan-syllabary && node node_modules/.bin/tsc --noEmit -p packages/our-japan"
+    "typecheck": "node node_modules/.bin/tsc --noEmit -p packages/brogue-mini && node node_modules/.bin/tsc --noEmit -p packages/skywake-chronicle && node node_modules/.bin/tsc --noEmit -p packages/japan-syllabary && node node_modules/.bin/tsc --noEmit -p packages/our-japan"
   }
 }

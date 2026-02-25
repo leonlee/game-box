@@ -1,0 +1,220 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skywake.local/schemas/tactics-dsl-v1.schema.json",
+  "title": "Skywake Tactics DSL v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "conflict_policy", "fallback_by_role", "rules"],
+  "properties": {
+    "version": {
+      "const": 1
+    },
+    "conflict_policy": {
+      "type": "string",
+      "enum": ["mixed_party_preempt_character_merge"]
+    },
+    "fallback_by_role": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tank", "dps", "support"],
+      "properties": {
+        "tank": {
+          "type": "string",
+          "enum": ["defend_stance", "wait"]
+        },
+        "dps": {
+          "type": "string",
+          "enum": ["basic_attack", "attack_skill", "wait"]
+        },
+        "support": {
+          "type": "string",
+          "enum": ["create_advantage", "wait", "defend_stance"]
+        }
+      }
+    },
+    "rules": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "$ref": "#/$defs/rule"
+      }
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{2,63}$"
+    },
+    "scope": {
+      "type": "string",
+      "enum": ["party", "character"]
+    },
+    "trigger": {
+      "type": "string",
+      "enum": ["on_node_enter", "on_turn_start", "on_turn_end", "on_combat_end"]
+    },
+    "action": {
+      "type": "string",
+      "enum": [
+        "attack_skill",
+        "defend_stance",
+        "create_advantage",
+        "overcome_obstacle",
+        "use_consumable",
+        "save_resource_mode",
+        "retreat_combat",
+        "retreat_explore",
+        "use_key_item_slot",
+        "basic_attack",
+        "wait",
+        "swap_target",
+        "mark_priority_target",
+        "cleanse_ally"
+      ]
+    },
+    "operator": {
+      "type": "string",
+      "enum": ["==", "!=", "<", "<=", ">", ">=", "contains", "in"]
+    },
+    "fact": {
+      "type": "string",
+      "enum": [
+        "self_stress_pct",
+        "self_has_consequence",
+        "self_resource_pct",
+        "ally_min_stress_pct",
+        "party_consumable_count",
+        "party_has_item",
+        "enemy_has_aspect",
+        "enemy_count_alive",
+        "enemy_is_elite",
+        "scene_has_aspect",
+        "node_type",
+        "time_window",
+        "fate_point_count",
+        "turn_index",
+        "rule_triggered_recently",
+        "combat_is_boss"
+      ]
+    },
+    "conditionLeaf": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fact", "op", "value"],
+      "properties": {
+        "fact": {
+          "$ref": "#/$defs/fact"
+        },
+        "op": {
+          "$ref": "#/$defs/operator"
+        },
+        "value": {}
+      }
+    },
+    "conditionExpr": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/conditionLeaf"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["all"],
+          "properties": {
+            "all": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 8,
+              "items": {
+                "$ref": "#/$defs/conditionExpr"
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["any"],
+          "properties": {
+            "any": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 8,
+              "items": {
+                "$ref": "#/$defs/conditionExpr"
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["not"],
+          "properties": {
+            "not": {
+              "$ref": "#/$defs/conditionExpr"
+            }
+          }
+        }
+      ]
+    },
+    "ruleAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["action"],
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/action"
+        },
+        "params": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "scope",
+        "trigger",
+        "priority",
+        "when",
+        "then",
+        "cooldown_turns",
+        "enabled"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "trigger": {
+          "$ref": "#/$defs/trigger"
+        },
+        "priority": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000
+        },
+        "when": {
+          "$ref": "#/$defs/conditionExpr"
+        },
+        "then": {
+          "$ref": "#/$defs/ruleAction"
+        },
+        "cooldown_turns": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 99
+        },
+        "enabled": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,547 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skywake.local/schemas/content-pack-v0.1.schema.json",
+  "title": "Skywake Content Pack v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "content_version",
+    "races",
+    "classes",
+    "skills",
+    "stunts",
+    "items",
+    "enemies",
+    "dungeons",
+    "quests"
+  ],
+  "properties": {
+    "content_version": {
+      "type": "string",
+      "pattern": "^0\\.1\\.[0-9]+$"
+    },
+    "races": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/race"
+      }
+    },
+    "classes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/class"
+      }
+    },
+    "skills": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/skill"
+      }
+    },
+    "stunts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/stunt"
+      }
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/item"
+      }
+    },
+    "enemies": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/enemy"
+      }
+    },
+    "dungeons": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/dungeon"
+      }
+    },
+    "quests": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/quest"
+      }
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{2,63}$"
+    },
+    "race": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "base_stats"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "base_stats": {
+          "$ref": "#/$defs/statBlock"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        }
+      }
+    },
+    "class": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "allowed_weapon_tags", "starting_skill_ids"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "allowed_weapon_tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "starting_skill_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "minItems": 1,
+          "maxItems": 6
+        }
+      }
+    },
+    "skill": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "category",
+        "base_action",
+        "target_type",
+        "cost_type",
+        "cost_value",
+        "power_formula",
+        "tags"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "category": {
+          "type": "string",
+          "enum": ["combat", "support", "utility"]
+        },
+        "base_action": {
+          "type": "string",
+          "enum": ["overcome", "create_advantage", "attack", "defend"]
+        },
+        "target_type": {
+          "type": "string",
+          "enum": ["self", "ally", "enemy", "scene"]
+        },
+        "cost_type": {
+          "type": "string",
+          "enum": ["none", "stress", "resource"]
+        },
+        "cost_value": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 999
+        },
+        "power_formula": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "stunt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "trigger_type", "effect_script", "cooldown_turns"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "trigger_type": {
+          "type": "string",
+          "enum": ["passive", "on_action", "on_condition"]
+        },
+        "effect_script": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "cooldown_turns": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 99
+        }
+      }
+    },
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "item_type",
+        "rarity",
+        "stack_limit",
+        "sell_price"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "item_type": {
+          "type": "string",
+          "enum": ["weapon", "armor", "accessory", "consumable", "quest"]
+        },
+        "rarity": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 6
+        },
+        "gear_aspect": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "gear_stunt_id": {
+          "$ref": "#/$defs/id"
+        },
+        "use_effect_script": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "stack_limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 999
+        },
+        "sell_price": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        }
+      }
+    },
+    "enemy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "rank",
+        "base_stats",
+        "skill_ids",
+        "drop_table"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "rank": {
+          "type": "string",
+          "enum": ["normal", "elite", "boss"]
+        },
+        "base_stats": {
+          "$ref": "#/$defs/statBlock"
+        },
+        "skill_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "resistance_tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "drop_table": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/dropEntry"
+          }
+        }
+      }
+    },
+    "dungeon": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "recommended_level",
+        "floor_count",
+        "seed_scope",
+        "floors"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "recommended_level": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 99
+        },
+        "floor_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "seed_scope": {
+          "type": "string",
+          "enum": ["global", "save_local"]
+        },
+        "floors": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/floor"
+          }
+        }
+      }
+    },
+    "floor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["index", "nodes"],
+      "properties": {
+        "index": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "nodes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/node"
+          }
+        }
+      }
+    },
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "node_type",
+        "scene_aspects",
+        "opposition_level",
+        "rewards"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "node_type": {
+          "type": "string",
+          "enum": ["combat", "event", "trap", "gate", "camp", "chest"]
+        },
+        "scene_aspects": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 3
+        },
+        "opposition_level": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 20
+        },
+        "gate_condition": {
+          "$ref": "#/$defs/gateCondition"
+        },
+        "rewards": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/dropEntry"
+          }
+        }
+      }
+    },
+    "gateCondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "required_item_id": {
+          "$ref": "#/$defs/id"
+        },
+        "required_aspect": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "time_window": {
+          "type": "string",
+          "enum": ["day", "night"]
+        }
+      }
+    },
+    "quest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "quest_type",
+        "chapter",
+        "title",
+        "objective",
+        "reward"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "quest_type": {
+          "type": "string",
+          "enum": ["main", "side", "challenge"]
+        },
+        "chapter": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 99
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "objective": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "reward": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "unlock_condition": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "dropEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["item_id", "weight", "min_count", "max_count"],
+      "properties": {
+        "item_id": {
+          "$ref": "#/$defs/id"
+        },
+        "weight": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100000
+        },
+        "min_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 999
+        },
+        "max_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 999
+        }
+      }
+    },
+    "statBlock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["str", "dex", "int", "vit", "wis", "luk"],
+      "properties": {
+        "str": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 999
+        },
+        "dex": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 999
+        },
+        "int": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 999
+        },
+        "vit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 999
+        },
+        "wis": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 999
+        },
+        "luk": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 999
+        }
+      }
+    }
+  }
+}
