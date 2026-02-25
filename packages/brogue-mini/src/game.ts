@@ -40,6 +40,7 @@ export interface Creature {
   poisonCloud?: boolean;   // mushroom: AoE poison on death
   slowMonster?: boolean;   // golem: acts every other turn
   summonCooldown?: number; // necromancer: turns until next summon
+  healCooldown?: number;   // cultist: turns until next ally heal
   doubleAct?: boolean;     // bat/hydra: acts twice per turn
   stationary?: boolean;    // mushroom: doesn't move
   lavaImmune?: boolean;    // ember sprite: immune to lava
@@ -110,6 +111,7 @@ interface MonsterDef {
   lavaImmune?: boolean;
   explodeOnDeath?: number;
   regenRate?: number;
+  healCooldown?: number;
 }
 
 const MONSTER_DEFS: MonsterDef[] = [
@@ -135,6 +137,7 @@ const NEW_MONSTER_DEFS: MonsterDef[] = [
   { char: "C", color: "#87ceeb", nameId: "crystal elemental", hp: 15, attack: 3, defense: 3, xpValue: 22, depthMin: 6, depthMax: 9, reflectDamage: 30 },
   { char: "B", color: "#999999", nameId: "bat", hp: 3, attack: 2, defense: 0, xpValue: 4, depthMin: 1, depthMax: 3, doubleAct: true },
   { char: "N", color: "#6a0dad", nameId: "necromancer", hp: 8, attack: 3, defense: 1, xpValue: 16, depthMin: 7, depthMax: 10, ranged: true },
+  { char: "u", color: "#7d5fff", nameId: "cultist", hp: 8, attack: 3, defense: 1, xpValue: 14, depthMin: 4, depthMax: 9, ranged: true, healCooldown: 3 },
   { char: "H", color: "#2e8b57", nameId: "hydra", hp: 18, attack: 4, defense: 2, xpValue: 25, depthMin: 8, depthMax: 10, doubleAct: true, regenRate: 1 },
   { char: "E", color: "#ff6347", nameId: "ember sprite", hp: 5, attack: 3, defense: 0, xpValue: 10, depthMin: 7, depthMax: 10, lavaImmune: true, explodeOnDeath: 3 },
   { char: "P", color: "#b0c4de", nameId: "phantom", hp: 7, attack: 4, defense: 0, xpValue: 14, depthMin: 5, depthMax: 8, passWall: true },
@@ -282,6 +285,7 @@ export class GameState {
       "potion of speed": { char: "!", color: "#00ccff", nameId: "potion of speed", type: "potion", value: 10 },
       "potion of invisibility": { char: "!", color: "#aaaaff", nameId: "potion of invisibility", type: "potion", value: 8 },
       "throwing knife": { char: "/", color: "#c0c0c0", nameId: "throwing knife", type: "throwing", value: 4 },
+      bomb: { char: "o", color: "#ff8844", nameId: "bomb", type: "throwing", value: 5 },
       ration: { char: "%", color: "#cd853f", nameId: "ration", type: "food", value: 40 },
       "ring of regeneration": { char: "=", color: "#2ecc71", nameId: "ring of regeneration", type: "equipment", value: 1, equipSlot: "ring" },
       "ring of perception": { char: "=", color: "#f1c40f", nameId: "ring of perception", type: "equipment", value: 1, equipSlot: "ring" },
@@ -513,6 +517,7 @@ export class GameState {
       { id: "throwing knife", price: 6 },
       { id: "ration", price: 5 },
       { id: "scroll of identify", price: 10 },
+      { id: "bomb", price: 12 },
       { id: "potion of strength", price: 20 },
       { id: "potion of speed", price: 15 },
       { id: "scroll of protection", price: 18 },
@@ -591,6 +596,7 @@ export class GameState {
     if (def.lifeSteal) monster.lifeSteal = def.lifeSteal;
     if (def.explodeOnDeath) monster.explodeOnDeath = def.explodeOnDeath;
     if (def.regenRate) monster.regenRate = def.regenRate;
+    if (def.healCooldown !== undefined) monster.healCooldown = def.healCooldown;
 
     // Mimic starts disguised
     if (def.disguised) {
@@ -628,13 +634,14 @@ export class GameState {
     else if (roll < 0.24) id = "potion of speed";
     else if (roll < 0.27) id = "potion of invisibility";
     else if (roll < 0.33) id = "ration";
-    else if (roll < 0.39) id = "throwing knife";
-    else if (roll < 0.44) id = "scroll of teleport";
-    else if (roll < 0.47) id = "scroll of identify";
-    else if (roll < 0.50) id = "scroll of enchant";
-    else if (roll < 0.53) id = "scroll of mapping";
-    else if (roll < 0.55) id = "scroll of remove curse";
-    else if (roll < 0.57) id = "scroll of protection";
+    else if (roll < 0.38) id = "throwing knife";
+    else if (roll < 0.40) id = "bomb";
+    else if (roll < 0.46) id = "scroll of teleport";
+    else if (roll < 0.49) id = "scroll of identify";
+    else if (roll < 0.52) id = "scroll of enchant";
+    else if (roll < 0.55) id = "scroll of mapping";
+    else if (roll < 0.57) id = "scroll of remove curse";
+    else if (roll < 0.59) id = "scroll of protection";
     else if (roll < 0.67) {
       // Weapon tier by depth
       if (this.depth >= 7) id = Math.random() < 0.5 ? "war hammer" : "battle axe";
@@ -1098,6 +1105,7 @@ export class GameState {
       hydra: "regen, double attack",
       "ember sprite": "explodes on death",
       phantom: "teleports, pass walls",
+      cultist: "heals allies, ranged",
       "spider queen": "summons, webs, poison",
       "necromancer lord": "summons, ranged, teleport",
     };
@@ -1798,6 +1806,7 @@ export class GameState {
       vampire: 0.45, mushroom: 0.15, "crystal elemental": 0.5,
       bat: 0.15, necromancer: 0.4, hydra: 0.6,
       "ember sprite": 0.3, phantom: 0.35,
+      cultist: 0.35,
       "spider queen": 1.0, "necromancer lord": 1.0,
     };
     const chance = dropChance[monster.nameId] ?? 0.3;
@@ -1816,9 +1825,10 @@ export class GameState {
 
     const roll = Math.random();
     let id: string;
-    if (roll < 0.45) id = "health potion small";
-    else if (roll < 0.60) id = "ration";
-    else if (roll < 0.75) id = "throwing knife";
+    if (roll < 0.40) id = "health potion small";
+    else if (roll < 0.55) id = "ration";
+    else if (roll < 0.70) id = "throwing knife";
+    else if (roll < 0.78) id = "bomb";
     else id = "whetstone";
 
     this.items.push(this.makeItem(monster.x, monster.y, id));
@@ -2144,17 +2154,80 @@ export class GameState {
     this.endTurn();
   }
 
+  private detonateBomb(cx: number, cy: number, baseDamage: number) {
+    sfx.explosion();
+    this.msg(t("bombExplode"), "combat");
+
+    let hitCount = 0;
+    for (const m of [...this.monsters]) {
+      if (m.nameId === "shopkeeper") continue;
+      const dist = Math.abs(m.x - cx) + Math.abs(m.y - cy);
+      if (dist > 1) continue;
+      const dmg = Math.max(1, baseDamage - m.defense + rand(-1, 1));
+      m.hp -= dmg;
+      hitCount++;
+      if (m.hp <= 0) {
+        sfx.monsterDie();
+        this.msg(t("monsterDies")(name(m.nameId)), "combat");
+        this.kills++;
+        this.gold += rand(1, 4);
+        this.gainXp(m.xpValue ?? 5);
+        this.handleMonsterDeath(m);
+        this.dropLoot(m);
+        this.monsters = this.monsters.filter(mm => mm !== m);
+      }
+    }
+    if (hitCount > 0) this.msg(t("bombHits")(hitCount), "combat");
+
+    const playerDist = Math.abs(this.player.x - cx) + Math.abs(this.player.y - cy);
+    if (playerDist <= 1) {
+      const dmg = Math.max(1, Math.ceil(baseDamage / 2) - this.getEffectiveDefense());
+      this.player.hp -= dmg;
+      this.msg(t("bombSelf")(dmg), "combat");
+      if (this.player.hp <= 0) {
+        sfx.playerDied();
+        this.msg(t("youDied"), "combat");
+        this.gameOver = true;
+      }
+    }
+
+    if (this.petAlive) {
+      const petDist = Math.abs(this.pet.x - cx) + Math.abs(this.pet.y - cy);
+      if (petDist <= 1) {
+        const dmg = Math.max(1, Math.ceil(baseDamage / 2) - this.pet.defense);
+        this.pet.hp -= dmg;
+        this.msg(t("bombPet")(dmg), "pet");
+        if (this.pet.hp <= 0) this.checkPetRevival();
+      }
+    }
+
+    for (const [dx, dy] of [[0, 0], ...DIRS4]) {
+      const x = cx + dx;
+      const y = cy + dy;
+      if (x < 0 || x >= MAP_W || y < 0 || y >= MAP_H) continue;
+      if (this.cells[y][x].tile === Tile.Grass) {
+        this.cells[y][x].tile = Tile.BurningGrass;
+        this.burningTiles.set(`${x},${y}`, 5);
+      }
+    }
+  }
+
   /** Throw item at nearest visible monster in given direction */
   throwItem(index: number, dx: number, dy: number) {
     const item = this.inventory.items[index];
     if (!item || item.type !== "throwing") return;
 
-    // Find first monster along the line
+    // Find first monster along the line and track impact position
+    const range = item.nameId === "bomb" ? 5 : 8;
     let tx = this.player.x + dx;
     let ty = this.player.y + dy;
     let target: Creature | undefined;
-    for (let i = 0; i < 8; i++) {
+    let impactX = this.player.x;
+    let impactY = this.player.y;
+    for (let i = 0; i < range; i++) {
       if (!this.isPassable(tx, ty)) break;
+      impactX = tx;
+      impactY = ty;
       target = this.monsterAt(tx, ty);
       if (target) break;
       tx += dx;
@@ -2162,7 +2235,9 @@ export class GameState {
     }
 
     this.inventory.remove(index);
-    if (target) {
+    if (item.nameId === "bomb") {
+      this.detonateBomb(impactX, impactY, item.value);
+    } else if (target) {
       const dmg = Math.max(1, item.value - target.defense);
       target.hp -= dmg;
       sfx.playerAttack();
@@ -2337,6 +2412,29 @@ export class GameState {
         if (m.summonCooldown !== undefined && m.summonCooldown <= 0) {
           this.necromancerSummon(m);
           m.summonCooldown = 4;
+        }
+      }
+
+      // Cultist: periodically heals nearby injured allies
+      if (m.nameId === "cultist" && distP <= 8 && !playerConcealed && this.hasLOS(m.x, m.y, this.player.x, this.player.y)) {
+        if (m.healCooldown === undefined) m.healCooldown = 3;
+        m.healCooldown--;
+        if (m.healCooldown <= 0) {
+          const ally = this.monsters
+            .filter(other =>
+              other !== m &&
+              other.nameId !== "shopkeeper" &&
+              other.hp < other.maxHp &&
+              Math.abs(other.x - m.x) + Math.abs(other.y - m.y) <= 4
+            )
+            .sort((a, b) => (a.hp / a.maxHp) - (b.hp / b.maxHp))[0];
+          if (ally) {
+            const heal = rand(2, 3);
+            ally.hp = Math.min(ally.maxHp, ally.hp + heal);
+            this.msg(t("cultistHeal")(name(ally.nameId), heal), "combat");
+            m.healCooldown = 5;
+            return;
+          }
         }
       }
 
