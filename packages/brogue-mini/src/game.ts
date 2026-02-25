@@ -169,6 +169,7 @@ export class GameState {
   won = false;
   turnCount = 0;
   autoExploring = false;
+  autoRoutingToStairs = false;
   inventory = new Inventory();
   showInventory = false;
   inventoryCursor = 0;
@@ -179,6 +180,7 @@ export class GameState {
   xpToNext = 12;
   statusMgr = new StatusManager();
   pendingLevelUp = false;
+  levelUpCursor = 0;
   kills = 0;
   showMinimap = false;
   ascending = false;
@@ -817,12 +819,14 @@ export class GameState {
       this.msg(t("autoMonster"), "system");
       return;
     }
+    this.autoRoutingToStairs = false;
     this.autoExploring = true;
     this.msg(t("autoExplore"), "system");
   }
 
   stopAutoExplore(reason?: string) {
     this.autoExploring = false;
+    this.autoRoutingToStairs = false;
     if (reason) this.msg(reason, "system");
   }
 
@@ -849,10 +853,19 @@ export class GameState {
     }
 
     // Find next step via BFS
-    const step = this.findExploreStep();
+    let step = this.findExploreStep();
     if (!step) {
-      this.stopAutoExplore(t("autoDone"));
-      return false;
+      step = this.findAutoStairsStep();
+      if (!step) {
+        this.stopAutoExplore(t("autoDone"));
+        return false;
+      }
+      if (!this.autoRoutingToStairs) {
+        this.autoRoutingToStairs = true;
+        this.msg(t("autoToStairs"), "system");
+      }
+    } else {
+      this.autoRoutingToStairs = false;
     }
 
     this.tryMove(step.dx, step.dy);
@@ -866,7 +879,7 @@ export class GameState {
       this.stopAutoExplore(t("autoMonster"));
       return false;
     }
-    if (this.hasVisibleItem()) {
+    if (!this.autoRoutingToStairs && this.hasVisibleItem()) {
       this.stopAutoExplore(t("autoItem"));
       return false;
     }
@@ -951,6 +964,87 @@ export class GameState {
     return { dx: sx - px, dy: sy - py };
   }
 
+  private findAutoStairsStep(): { dx: number; dy: number } | null {
+    if (this.ascending) return null;
+
+    let stairsX = -1;
+    let stairsY = -1;
+    for (let y = 0; y < MAP_H; y++) {
+      for (let x = 0; x < MAP_W; x++) {
+        if (this.cells[y][x].revealed && this.cells[y][x].tile === Tile.StairsDown) {
+          stairsX = x;
+          stairsY = y;
+          break;
+        }
+      }
+      if (stairsX >= 0) break;
+    }
+
+    if (stairsX < 0) return null;
+
+    const px = this.player.x;
+    const py = this.player.y;
+    if (stairsX === px && stairsY === py) return null;
+
+    const visited: boolean[][] = [];
+    const parentX: number[][] = [];
+    const parentY: number[][] = [];
+    for (let y = 0; y < MAP_H; y++) {
+      visited[y] = new Array(MAP_W).fill(false);
+      parentX[y] = new Array(MAP_W).fill(-1);
+      parentY[y] = new Array(MAP_W).fill(-1);
+    }
+
+    const queue: number[] = [];
+    let qi = 0;
+    queue.push(px, py);
+    visited[py][px] = true;
+
+    let tx = -1;
+    let ty = -1;
+
+    while (qi < queue.length) {
+      const cx = queue[qi++];
+      const cy = queue[qi++];
+
+      if (cx === stairsX && cy === stairsY) {
+        tx = cx;
+        ty = cy;
+        break;
+      }
+
+      for (const [dx, dy] of DIRS4) {
+        const nx = cx + dx;
+        const ny = cy + dy;
+        if (nx < 0 || nx >= MAP_W || ny < 0 || ny >= MAP_H) continue;
+        if (visited[ny][nx]) continue;
+        if (!this.cells[ny][nx].revealed) continue;
+        if (!this.isPassable(nx, ny)) continue;
+        if (this.monsterAt(nx, ny)) continue;
+
+        visited[ny][nx] = true;
+        parentX[ny][nx] = cx;
+        parentY[ny][nx] = cy;
+        queue.push(nx, ny);
+      }
+    }
+
+    if (tx < 0) return null;
+
+    let sx = tx;
+    let sy = ty;
+    while (parentX[sy][sx] >= 0) {
+      const ppx = parentX[sy][sx];
+      const ppy = parentY[sy][sx];
+      if (ppx === px && ppy === py) break;
+      sx = ppx;
+      sy = ppy;
+    }
+
+    if (sx === px && sy === py) return null;
+    return { dx: sx - px, dy: sy - py };
+  }
+
   private adjacentToUnrevealed(x: number, y: number): boolean {
     for (const [dx, dy] of DIRS4) {
       const nx = x + dx;
@@ -982,6 +1076,7 @@ export class GameState {
     this.level = 1;
     this.xpToNext = 12;
     this.pendingLevelUp = false;
+    this.levelUpCursor = 0;
     this.statusMgr.clear();
     this.kills = 0;
     this.showMinimap = false;
@@ -1684,6 +1779,7 @@ export class GameState {
       this.level++;
       this.xpToNext = Math.ceil(this.xpToNext * 1.25);
       this.pendingLevelUp = true;
+      this.levelUpCursor = 0;
       sfx.pickupWeapon();
       this.msg(t("levelUp")(this.level), "system");
       // Unlock abilities at levels 3, 6, 9
@@ -1795,6 +1891,7 @@ export class GameState {
       this.msg(t("levelDef"), "system");
     }
     this.pendingLevelUp = false;
+    this.levelUpCursor = 0;
   }
 
   private dropLoot(monster: Creature) {

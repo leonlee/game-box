@@ -244,17 +244,52 @@ export function render(ctx: CanvasRenderingContext2D, game: GameState) {
     ctx.fillStyle = "#ffd700";
     ctx.fillText(t("levelUp")(game.level), CANVAS_W / 2, MAP_H_PX / 2 - 20);
 
-    ctx.font = SUB_FONT;
-    ctx.fillStyle = "#ccc";
-    ctx.fillText("1: +5 HP   2: +1 ATK   3: +1 DEF", CANVAS_W / 2, MAP_H_PX / 2 + 16);
+    const listW = 360;
+    const rowH = 30;
+    const listX = CANVAS_W / 2 - listW / 2;
+    const listY = MAP_H_PX / 2 - 6;
+    const labels = ["1  +5 HP", "2  +1 ATK", "3  +1 DEF"];
 
-    // Touch hit areas for level-up choices
-    const luY = MAP_H_PX / 2 + 4;
-    const luW = 120;
-    const luH = 24;
-    overlayHitAreas.push({ x: CANVAS_W / 2 - 180, y: luY, w: luW, h: luH, action: "levelup", data: 0 });
-    overlayHitAreas.push({ x: CANVAS_W / 2 - 50, y: luY, w: luW, h: luH, action: "levelup", data: 1 });
-    overlayHitAreas.push({ x: CANVAS_W / 2 + 80, y: luY, w: luW, h: luH, action: "levelup", data: 2 });
+    for (let i = 0; i < labels.length; i++) {
+      const y = listY + i * (rowH + 6);
+      const selected = i === game.levelUpCursor;
+      ctx.fillStyle = selected ? "rgba(255,215,0,0.18)" : "rgba(18,18,30,0.9)";
+      ctx.fillRect(listX, y, listW, rowH);
+      ctx.strokeStyle = selected ? "#ffd700" : "#555";
+      ctx.lineWidth = selected ? 2 : 1;
+      ctx.strokeRect(listX, y, listW, rowH);
+
+      ctx.font = UI_FONT;
+      ctx.fillStyle = selected ? "#ffd700" : "#ccc";
+      ctx.textAlign = "left";
+      ctx.textBaseline = "middle";
+      ctx.fillText(labels[i], listX + 14, y + rowH / 2);
+
+      // Touch: select level-up choice
+      overlayHitAreas.push({ x: listX, y, w: listW, h: rowH, action: "levelupSelect", data: i });
+    }
+
+    const confirmW = 180;
+    const confirmH = 28;
+    const confirmX = CANVAS_W / 2 - confirmW / 2;
+    const confirmY = listY + labels.length * (rowH + 6) + 4;
+    ctx.fillStyle = "#2a3145";
+    ctx.fillRect(confirmX, confirmY, confirmW, confirmH);
+    ctx.strokeStyle = "#5f7ca8";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(confirmX, confirmY, confirmW, confirmH);
+    ctx.font = UI_FONT;
+    ctx.fillStyle = "#d8e8ff";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(t("levelupConfirmBtn"), confirmX + confirmW / 2, confirmY + confirmH / 2);
+    overlayHitAreas.push({ x: confirmX, y: confirmY, w: confirmW, h: confirmH, action: "levelupConfirm" });
+
+    ctx.font = UI_FONT;
+    ctx.fillStyle = "#999";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    ctx.fillText(t("levelupHint"), CANVAS_W / 2, confirmY + confirmH + 6);
     return;
   }
 
@@ -441,6 +476,9 @@ function renderInventory(ctx: CanvasRenderingContext2D, game: GameState) {
   ctx.fillText(`[${t("inventoryTitle")} ${game.inventory.items.length}/8]`, bx + 20, curY);
   curY += 20;
 
+  const listStartY = curY;
+  const rowH = 22;
+
   if (game.inventory.items.length === 0) {
     ctx.fillStyle = "#555";
     ctx.fillText(`  ${t("emptyInventory")}`, bx + 20, curY);
@@ -448,15 +486,16 @@ function renderInventory(ctx: CanvasRenderingContext2D, game: GameState) {
     for (let i = 0; i < game.inventory.items.length; i++) {
       const item = game.inventory.items[i];
       const selected = i === game.inventoryCursor;
+      const rowY = listStartY + i * rowH;
 
       if (selected) {
         ctx.fillStyle = "rgba(255,215,0,0.15)";
-        ctx.fillRect(bx + 16, curY - 4, boxW - 32, 20);
+        ctx.fillRect(bx + 16, rowY - 5, boxW - 32, rowH - 2);
       }
 
       ctx.font = '14px monospace';
       ctx.fillStyle = item.color;
-      ctx.fillText(item.char, bx + 24, curY);
+      ctx.fillText(item.char, bx + 24, rowY);
 
       ctx.font = UI_FONT;
       ctx.fillStyle = selected ? "#ffd700" : "#ccc";
@@ -466,11 +505,10 @@ function renderInventory(ctx: CanvasRenderingContext2D, game: GameState) {
         const durColor = frac > 0.5 ? "#2ecc71" : frac > 0.25 ? "#f39c12" : "#e74c3c";
         const durText = ` [${item.durability}/${item.maxDurability}]`;
         // Draw base name, then durability in color
-        ctx.fillText(label, bx + 42, curY);
+        ctx.fillText(label, bx + 42, rowY);
         const baseWidth = ctx.measureText(label).width;
         ctx.fillStyle = durColor;
-        ctx.fillText(durText, bx + 42 + baseWidth, curY);
-        curY += 20;
+        ctx.fillText(durText, bx + 42 + baseWidth, rowY);
         continue;
       }
       const identified = game.identifiedTypes.has(item.nameId);
@@ -478,29 +516,57 @@ function renderInventory(ctx: CanvasRenderingContext2D, game: GameState) {
       if (item.type === "potion" && identified && item.nameId === "potion of strength") label += ` (+${item.value} ATK)`;
       if (item.type === "food") label += ` (+${item.value})`;
       if (item.type === "throwing") label += ` (${item.value} dmg)`;
-      ctx.fillText(label, bx + 42, curY);
-
-      curY += 20;
+      ctx.fillText(label, bx + 42, rowY);
     }
   }
+
+  // Action buttons (touch-friendly)
+  const btnAreaX = bx + 20;
+  const btnAreaW = boxW - 40;
+  const btnGap = 8;
+  const btnY = by + boxH - 54;
+  const btnH = 24;
+  const btnW = Math.floor((btnAreaW - btnGap * 2) / 3);
+  const useX = btnAreaX;
+  const dropX = useX + btnW + btnGap;
+  const closeX = dropX + btnW + btnGap;
+
+  const drawInvButton = (x: number, label: string, fill: string, border: string) => {
+    ctx.fillStyle = fill;
+    ctx.fillRect(x, btnY, btnW, btnH);
+    ctx.strokeStyle = border;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x, btnY, btnW, btnH);
+    ctx.font = UI_FONT;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = "#ddd";
+    ctx.fillText(label, x + btnW / 2, btnY + btnH / 2);
+  };
+
+  drawInvButton(useX, t("invUseBtn"), "#1a2538", "#3b5f8a");
+  drawInvButton(dropX, t("invDropBtn"), "#321e24", "#8a3b4a");
+  drawInvButton(closeX, t("invCloseBtn"), "#222", "#555");
 
   // Hint
   ctx.font = SUB_FONT;
   ctx.textAlign = "center";
+  ctx.textBaseline = "alphabetic";
   ctx.fillStyle = "#666";
   ctx.fillText(t("inventoryHint"), CANVAS_W / 2, by + boxH - 16);
 
-  // Touch hit areas for inventory items (use = tap left 2/3, drop = tap right 1/3)
+  // Touch hit areas for selecting inventory rows
   if (game.inventory.items.length > 0) {
-    const itemStartY = by + 114; // approximate start of item list
     for (let i = 0; i < game.inventory.items.length; i++) {
-      const iy = itemStartY + i * 20 - 4;
-      overlayHitAreas.push({ x: bx + 16, y: iy, w: (boxW - 32) * 0.67, h: 20, action: "invUse", data: i });
-      overlayHitAreas.push({ x: bx + 16 + (boxW - 32) * 0.67, y: iy, w: (boxW - 32) * 0.33, h: 20, action: "invDrop", data: i });
+      const iy = listStartY + i * rowH - 5;
+      overlayHitAreas.push({ x: bx + 16, y: iy, w: boxW - 32, h: rowH, action: "invSelect", data: i });
     }
   }
-  // Tap outside items to close
-  overlayHitAreas.push({ x: bx, y: by + boxH - 30, w: boxW, h: 30, action: "invClose" });
+
+  // Touch hit areas for actions
+  overlayHitAreas.push({ x: useX, y: btnY, w: btnW, h: btnH, action: "invUse" });
+  overlayHitAreas.push({ x: dropX, y: btnY, w: btnW, h: btnH, action: "invDrop" });
+  overlayHitAreas.push({ x: closeX, y: btnY, w: btnW, h: btnH, action: "invClose" });
 }
 
 function renderPanel(ctx: CanvasRenderingContext2D, game: GameState) {

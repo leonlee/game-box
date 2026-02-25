@@ -110,6 +110,11 @@ function recordGameOver() {
 // --- Shared action handlers for keyboard + touch ---
 
 function handleDirection(dx: number, dy: number) {
+  if (game.pendingLevelUp) {
+    if (dy < 0 || dx < 0) game.levelUpCursor = Math.max(0, game.levelUpCursor - 1);
+    else if (dy > 0 || dx > 0) game.levelUpCursor = Math.min(2, game.levelUpCursor + 1);
+    return;
+  }
   if (dashMode) {
     game.useDash(dx, dy);
     dashMode = false;
@@ -138,6 +143,13 @@ function handleDirection(dx: number, dy: number) {
 }
 
 function handleAction(action: string) {
+  if (game.pendingLevelUp) {
+    if (action === "wait" || action === "levelupConfirm") {
+      game.applyLevelUp(game.levelUpCursor);
+    }
+    return;
+  }
+
   switch (action) {
     case "wait":
       if (game.autoExploring) { stopAuto(); return; }
@@ -258,8 +270,12 @@ canvas.addEventListener("touchstart", (e) => {
   for (let i = overlayHitAreas.length - 1; i >= 0; i--) {
     const area = overlayHitAreas[i];
     if (x >= area.x && x <= area.x + area.w && y >= area.y && y <= area.y + area.h) {
-      if (area.action === "levelup" && area.data !== undefined) {
-        game.applyLevelUp(area.data);
+      if (area.action === "levelupSelect" && area.data !== undefined) {
+        game.levelUpCursor = area.data;
+      } else if (area.action === "levelupConfirm") {
+        game.applyLevelUp(game.levelUpCursor);
+      } else if (area.action === "invSelect" && area.data !== undefined) {
+        game.inventoryCursor = area.data;
       } else if (area.action === "invUse" && area.data !== undefined) {
         game.inventoryCursor = area.data;
         handleAction("invUse");
@@ -388,9 +404,34 @@ document.addEventListener("keydown", (e) => {
 
   // --- Level up selection ---
   if (game.pendingLevelUp) {
-    if (e.key === "1") game.applyLevelUp(0);
-    else if (e.key === "2") game.applyLevelUp(1);
-    else if (e.key === "3") game.applyLevelUp(2);
+    switch (e.key) {
+      case "1":
+        game.applyLevelUp(0);
+        break;
+      case "2":
+        game.applyLevelUp(1);
+        break;
+      case "3":
+        game.applyLevelUp(2);
+        break;
+      case "ArrowUp":
+      case "k":
+      case "ArrowLeft":
+      case "h":
+        game.levelUpCursor = Math.max(0, game.levelUpCursor - 1);
+        break;
+      case "ArrowDown":
+      case "j":
+      case "ArrowRight":
+      case "l":
+        game.levelUpCursor = Math.min(2, game.levelUpCursor + 1);
+        break;
+      case "Enter":
+      case " ":
+      case ".":
+        game.applyLevelUp(game.levelUpCursor);
+        break;
+    }
     e.preventDefault();
     return;
   }
