@@ -996,6 +996,9 @@ function renderExpeditionTab(): string {
                 <div class="touch-item"><span>预计返航</span><strong>${new Date(activeRunSnapshot.finishAt).toLocaleTimeString()}</strong></div>
               </div>
               <div class="meter progress-meter"><i style="width:${Math.round(activeRunSnapshot.progressRate * 100)}%;"></i></div>
+              <div class="inline-buttons">
+                <button data-action="fast-forward-run">加速返航并结算</button>
+              </div>
               <p class="hint">日志会随时间推进逐步解锁，不再瞬间结算。</p>
             </article>`
           : ""
@@ -1649,6 +1652,18 @@ function setExpeditionTimeScale(scale: ExpeditionTimeScale): void {
   setBanner(`探险时间倍率已切换为 ${timeScaleLabel(scale)}。`);
 }
 
+function fastForwardActiveRun(): void {
+  if (!save.activeRunPlan) {
+    setBanner("当前没有进行中的探险。");
+    return;
+  }
+
+  const finished = finalizeActiveRunIfDue(true);
+  if (!finished) {
+    setBanner("加速返航失败，请重试。");
+  }
+}
+
 function exportSaveBackup(): void {
   const blob = new Blob([exportSaveString(save)], { type: "application/json;charset=utf-8" });
   const url = URL.createObjectURL(blob);
@@ -1916,6 +1931,8 @@ function handleClick(event: MouseEvent): void {
     toggleNotifyFailOnly();
   } else if (action === "toggle-advanced-debug") {
     toggleAdvancedDebug();
+  } else if (action === "fast-forward-run") {
+    fastForwardActiveRun();
   } else if (action === "set-time-scale") {
     const scale = Number(value);
     if (scale === 1 || scale === 4 || scale === 10) {
