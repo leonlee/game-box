@@ -195,6 +195,65 @@ function gainXp(save: SaveData, reachedFloor: number, status: RunStatus): void {
   });
 }
 
+interface RecoverySummary {
+  stressRecovered: number;
+  mentalRecovered: number;
+  resourceRecovered: number;
+  consequencesCleared: number;
+}
+
+function applyTownRecovery(save: SaveData, status: RunStatus): RecoverySummary {
+  const stressRatioByStatus: Record<RunStatus, number> = {
+    running: 0,
+    completed: 0.42,
+    retreated: 0.3,
+    failed: 0.18
+  };
+  const resourceRatioByStatus: Record<RunStatus, number> = {
+    running: 0,
+    completed: 0.5,
+    retreated: 0.36,
+    failed: 0.22
+  };
+
+  const stressRatio = stressRatioByStatus[status];
+  const resourceRatio = resourceRatioByStatus[status];
+  const summary: RecoverySummary = {
+    stressRecovered: 0,
+    mentalRecovered: 0,
+    resourceRecovered: 0,
+    consequencesCleared: 0
+  };
+
+  save.characters.forEach((character) => {
+    const stressBefore = character.stressPhysical;
+    const mentalBefore = character.stressMental;
+    const resourceBefore = character.resource;
+    const hadConsequence = character.consequenceLight.length > 0;
+
+    const stressGain = Math.max(6, Math.round(character.maxStress * stressRatio));
+    const mentalGain = Math.max(4, Math.round(character.maxStress * stressRatio * 0.7));
+    const resourceGain = Math.max(8, Math.round(character.maxResource * resourceRatio));
+
+    character.stressPhysical = clamp(character.stressPhysical + stressGain, 0, character.maxStress);
+    character.stressMental = clamp(character.stressMental + mentalGain, 0, character.maxStress);
+    character.resource = clamp(character.resource + resourceGain, 0, character.maxResource);
+
+    if (status === "completed" || status === "retreated") {
+      character.consequenceLight = "";
+    }
+
+    summary.stressRecovered += Math.max(0, character.stressPhysical - stressBefore);
+    summary.mentalRecovered += Math.max(0, character.stressMental - mentalBefore);
+    summary.resourceRecovered += Math.max(0, character.resource - resourceBefore);
+    if (hadConsequence && character.consequenceLight.length === 0) {
+      summary.consequencesCleared += 1;
+    }
+  });
+
+  return summary;
+}
+
 function pickRandomLivingCharacterIndex(rng: () => number, save: SaveData): number {
   const livingIndices = save.characters
     .map((character, index) => ({ character, index }))
@@ -890,6 +949,7 @@ export function simulateRun(save: SaveData, request: ExploreRequest): Simulation
   save.materials += retained.materials;
 
   gainXp(save, reachedFloor, status);
+  const recovery = applyTownRecovery(save, status);
   const completedAtEnd = updateQuestProgress(save, dungeon.id, reachedFloor, status);
   const rewardsAtEnd = applyQuestRewards(save, completedAtEnd);
   if (completedAtEnd.length > 0) {
@@ -906,7 +966,8 @@ export function simulateRun(save: SaveData, request: ExploreRequest): Simulation
     raw_materials: rawMaterials,
     retained_gold: retained.gold,
     retained_materials: retained.materials,
-    reason_tags: Array.from(reasonTags)
+    reason_tags: Array.from(reasonTags),
+    recovery
   }, Array.from(reasonTags));
 
   const summary = {
