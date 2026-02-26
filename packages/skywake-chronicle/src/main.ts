@@ -32,6 +32,8 @@ const REFORGE_RECIPE = {
   outputCount: 1
 } as const;
 const TIME_SCALE_OPTIONS: readonly ExpeditionTimeScale[] = [1, 4, 10] as const;
+const HAS_MONOTONIC_CLOCK = typeof performance !== "undefined" && typeof performance.now === "function";
+const MONOTONIC_ORIGIN_MS = HAS_MONOTONIC_CLOCK ? Date.now() - performance.now() : Date.now();
 
 type TacticStyle = "aggressive" | "balanced" | "cautious";
 
@@ -122,6 +124,11 @@ interface RecoverySummary {
   consequencesCleared: number;
 }
 
+function runtimeNow(): number {
+  if (!HAS_MONOTONIC_CLOCK) return Date.now();
+  return Math.floor(MONOTONIC_ORIGIN_MS + performance.now());
+}
+
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
@@ -134,12 +141,12 @@ function planDurationMs(plan: ActiveRunPlan): number {
   return Math.max(1000, plan.finishAt - plan.startedAt);
 }
 
-function planPauseCarryMs(plan: ActiveRunPlan, now = Date.now()): number {
+function planPauseCarryMs(plan: ActiveRunPlan, now = runtimeNow()): number {
   const currentPause = plan.pausedAt == null ? 0 : Math.max(0, now - plan.pausedAt);
   return Math.max(0, plan.pausedAccumMs) + currentPause;
 }
 
-function planElapsedMs(plan: ActiveRunPlan, now = Date.now()): number {
+function planElapsedMs(plan: ActiveRunPlan, now = runtimeNow()): number {
   const durationMs = planDurationMs(plan);
   const anchorNow = plan.pausedAt ?? now;
   const elapsed = anchorNow - plan.startedAt - Math.max(0, plan.pausedAccumMs);
@@ -276,7 +283,7 @@ function computePlannedDurationMs(
   return Math.max(10_000, Math.round(baseDurationMs / Math.max(1, timeScale)));
 }
 
-function getActiveRunSnapshot(now = Date.now()): ActiveRunSnapshot | null {
+function getActiveRunSnapshot(now = runtimeNow()): ActiveRunSnapshot | null {
   const plan = save.activeRunPlan;
   if (!plan) return null;
 
@@ -1846,7 +1853,7 @@ function pauseActiveRun(): void {
 
   save.activeRunPlan = {
     ...plan,
-    pausedAt: Date.now()
+    pausedAt: runtimeNow()
   };
   persistSave(save);
   setBanner("探险已暂停，进度与日志已冻结。");
@@ -1863,7 +1870,7 @@ function resumeActiveRun(): void {
     return;
   }
 
-  const pauseDelta = Math.max(0, Date.now() - plan.pausedAt);
+  const pauseDelta = Math.max(0, runtimeNow() - plan.pausedAt);
   save.activeRunPlan = {
     ...plan,
     pausedAt: null,
@@ -2002,7 +2009,7 @@ function startRun(): void {
     simulation.run.seed,
     save.settings.expeditionTimeScale
   );
-  const startedAt = Date.now();
+  const startedAt = runtimeNow();
   const finishAt = startedAt + durationMs;
   const timedRun = retimeRunForDuration(simulation.run, startedAt, finishAt);
   const postRunDelta: ActiveRunPlan["postRunDelta"] = {
