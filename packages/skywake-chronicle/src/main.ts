@@ -1,8 +1,8 @@
 import { DUNGEONS, INVENTORY_CATALOG, createPresetProfile, getItemContentById } from "./content";
 import { estimateRunMinutes, simulateRun, toNarrative } from "./simulator";
-import { loadSave, persistSave, wipeSave } from "./storage";
+import { exportSaveString, importSaveString, loadSave, persistSave, wipeSave } from "./storage";
 import { getActiveProfile, validateTacticsConfig } from "./tactics";
-import { EventType, ReasonTag, SaveData, TacticsConfig, TacticsRule, UiState } from "./types";
+import { EventType, LogView, ReasonTag, SaveData, TacticsConfig, TacticsRule, UiState } from "./types";
 
 const appEl = document.getElementById("app");
 if (!(appEl instanceof HTMLElement)) {
@@ -59,11 +59,13 @@ let ui: UiState = {
   selectedDungeonId: DUNGEONS[0].id,
   plannedFloor: 4,
   selectedRunId: pickDefaultRunId(),
-  logView: "narrative",
+  logView: save.settings.defaultLogView,
   logTypeFilter: "all",
   logReasonFilter: "all",
   editorText: initialEditorText(),
   editorErrors: [],
+  importText: "",
+  importErrors: [],
   banner: ""
 };
 
@@ -283,6 +285,121 @@ function getRunDiagnosis(run: SaveData["runs"][number] | null, dungeonId: string
   };
 }
 
+function isOnboardingComplete(): boolean {
+  return (
+    save.onboarding.openedPartyTab &&
+    save.onboarding.appliedPreset &&
+    save.onboarding.startedRun &&
+    save.onboarding.viewedDebugLog
+  );
+}
+
+function markOnboardingStep(step: keyof SaveData["onboarding"]): void {
+  if (save.onboarding[step]) return;
+
+  save.onboarding = {
+    ...save.onboarding,
+    [step]: true
+  };
+
+  if (isOnboardingComplete() && save.settings.showOnboardingCard) {
+    save.settings = {
+      ...save.settings,
+      showOnboardingCard: false
+    };
+    setBanner("新手引导已完成，后续可在设置中重新开启。");
+  }
+
+  persistSave(save);
+}
+
+function renderOnboardingCard(): string {
+  if (!save.settings.showOnboardingCard) return "";
+
+  const steps: Array<{
+    key: keyof SaveData["onboarding"];
+    title: string;
+    action: string;
+    buttonLabel: string;
+  }> = [
+    { key: "openedPartyTab", title: "打开队伍页查看当前编组", action: "guide-open-party", buttonLabel: "前往队伍" },
+    { key: "appliedPreset", title: "应用一次战术模板（自动调参）", action: "guide-apply-balanced", buttonLabel: "套用均衡模板" },
+    { key: "startedRun", title: "发起一次出征并完成结算", action: "guide-start-run", buttonLabel: "立即派遣" },
+    { key: "viewedDebugLog", title: "切换到日志调试视图进行复盘", action: "guide-open-debug-log", buttonLabel: "打开调试视图" }
+  ];
+
+  const doneCount = steps.filter((step) => save.onboarding[step.key]).length;
+  const allDone = doneCount === steps.length;
+
+  return `<article class="panel">
+      <div class="toolbar">
+        <h3>新手引导</h3>
+        <span class="chip">${doneCount}/${steps.length}</span>
+      </div>
+      <ul class="touch-list compact">
+        ${steps
+          .map((step) => {
+            const done = save.onboarding[step.key];
+            return `<li class="touch-item">
+                <div class="row">
+                  <strong>${done ? "已完成" : "待完成"}</strong>
+                  <span>${escapeHtml(step.title)}</span>
+                </div>
+                <button data-action="${step.action}" ${done ? "disabled" : ""}>${done ? "已完成" : escapeHtml(step.buttonLabel)}</button>
+              </li>`;
+          })
+          .join("")}
+      </ul>
+      <div class="inline-buttons">
+        <button data-action="dismiss-onboarding">${allDone ? "关闭引导卡" : "暂时隐藏"}</button>
+      </div>
+    </article>`;
+}
+
+function getNotificationPermissionLabel(): string {
+  if (typeof Notification === "undefined") return "当前浏览器不支持";
+  if (Notification.permission === "granted") return "已授权";
+  if (Notification.permission === "denied") return "已拒绝";
+  return "未请求";
+}
+
+async function requestNotificationPermission(): Promise<void> {
+  if (typeof Notification === "undefined") {
+    setBanner("当前浏览器不支持系统通知。");
+    render();
+    return;
+  }
+
+  try {
+    const result = await Notification.requestPermission();
+    if (result === "granted") {
+      setBanner("通知授权成功，后续可在出征完成后收到提醒。");
+    } else if (result === "denied") {
+      setBanner("通知权限已拒绝，可在浏览器设置中重新开启。");
+    } else {
+      setBanner("通知权限暂未授予。");
+    }
+  } catch {
+    setBanner("通知权限请求失败，请检查浏览器策略。");
+  }
+  render();
+}
+
+function notifyRunComplete(run: SaveData["runs"][number]): void {
+  if (!save.settings.notifyOnRunComplete) return;
+  if (save.settings.notifyFailOnly && run.status === "completed") return;
+  if (typeof Notification === "undefined") return;
+  if (Notification.permission !== "granted") return;
+
+  const title = run.status === "completed" ? "Skywake 出征完成" : "Skywake 出征告警";
+  const body = `状态 ${run.status} · 层数 ${run.reachedFloor}/${run.plannedFloor} · +${run.retainedGold}G +${run.retainedMaterials}M`;
+  try {
+    new Notification(title, { body });
+  } catch {
+    // Ignore browsers that throw in unsupported contexts (for example, background restrictions).
+  }
+}
+
 function renderCharacterCards(): string {
   return save.characters
     .map((character) => {
@@ -363,6 +480,8 @@ function renderExpeditionTab(): string {
 
   return `
     <section class="panel-grid">
+      ${renderOnboardingCard()}
+
       <article class="panel">
         <h3>出征配置</h3>
         <label class="field">迷宫
@@ -664,10 +783,83 @@ function renderStorageTab(): string {
   `;
 }
 
+function renderSettingsTab(): string {
+  const permissionLabel = getNotificationPermissionLabel();
+  const onboardingDone = isOnboardingComplete();
+  const canRequestNotification =
+    typeof Notification !== "undefined" && Notification.permission !== "granted" && Notification.permission !== "denied";
+
+  return `
+    <section class="panel-grid">
+      <article class="panel">
+        <h3>运行设置</h3>
+        <div class="touch-list compact">
+          <div class="touch-item">
+            <span>默认日志视图</span>
+            <strong>${save.settings.defaultLogView === "debug" ? "调试" : "叙事"}</strong>
+          </div>
+          <div class="touch-item">
+            <span>新手引导卡</span>
+            <strong>${save.settings.showOnboardingCard ? "显示" : "隐藏"}</strong>
+          </div>
+          <div class="touch-item">
+            <span>出征完成通知</span>
+            <strong>${save.settings.notifyOnRunComplete ? "开启" : "关闭"}</strong>
+          </div>
+          <div class="touch-item">
+            <span>仅失败通知</span>
+            <strong>${save.settings.notifyFailOnly ? "开启" : "关闭"}</strong>
+          </div>
+          <div class="touch-item">
+            <span>通知权限</span>
+            <strong>${permissionLabel}</strong>
+          </div>
+        </div>
+        <div class="inline-buttons wrap">
+          <button data-action="set-default-log-view" data-value="narrative" class="${save.settings.defaultLogView === "narrative" ? "on" : ""}">默认叙事</button>
+          <button data-action="set-default-log-view" data-value="debug" class="${save.settings.defaultLogView === "debug" ? "on" : ""}">默认调试</button>
+          <button data-action="toggle-onboarding-card">${save.settings.showOnboardingCard ? "隐藏引导卡" : "显示引导卡"}</button>
+          <button data-action="toggle-notify-on-run">${save.settings.notifyOnRunComplete ? "关闭完成通知" : "开启完成通知"}</button>
+          <button data-action="toggle-notify-fail-only" ${save.settings.notifyOnRunComplete ? "" : "disabled"}>${save.settings.notifyFailOnly ? "改为全部通知" : "仅失败通知"}</button>
+          <button data-action="request-notification-permission" ${canRequestNotification ? "" : "disabled"}>请求通知权限</button>
+        </div>
+      </article>
+
+      <article class="panel">
+        <h3>引导进度</h3>
+        <div class="touch-list compact">
+          <div class="touch-item"><span>打开队伍页</span><strong>${save.onboarding.openedPartyTab ? "已完成" : "未完成"}</strong></div>
+          <div class="touch-item"><span>应用战术模板</span><strong>${save.onboarding.appliedPreset ? "已完成" : "未完成"}</strong></div>
+          <div class="touch-item"><span>发起一次出征</span><strong>${save.onboarding.startedRun ? "已完成" : "未完成"}</strong></div>
+          <div class="touch-item"><span>切换调试日志</span><strong>${save.onboarding.viewedDebugLog ? "已完成" : "未完成"}</strong></div>
+          <div class="touch-item"><span>总进度</span><strong>${onboardingDone ? "完成" : "进行中"}</strong></div>
+        </div>
+      </article>
+    </section>
+
+    <section class="panel">
+      <h3>存档备份 / 恢复</h3>
+      <p class="hint">导出当前存档到 JSON；导入会覆盖当前存档（会做版本校验与迁移）。</p>
+      <div class="inline-buttons">
+        <button data-action="export-save" class="primary">导出存档</button>
+        <button data-action="import-save" class="primary">导入并覆盖</button>
+        <button data-action="clear-import">清空导入内容</button>
+      </div>
+      <textarea id="import-editor" rows="8" placeholder="粘贴备份 JSON 到这里">${escapeHtml(ui.importText)}</textarea>
+      ${
+        ui.importErrors.length > 0
+          ? `<ul class="errors">${ui.importErrors.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`
+          : `<p class="hint">导入框为空时不会执行覆盖。</p>`
+      }
+    </section>
+  `;
+}
+
 function renderTabContent(): string {
   if (ui.tab === "party") return renderPartyTab();
   if (ui.tab === "town") return renderTownTab();
   if (ui.tab === "storage") return renderStorageTab();
+  if (ui.tab === "settings") return renderSettingsTab();
   return renderExpeditionTab();
 }
 
@@ -676,7 +868,8 @@ function render(): void {
     { id: "expedition", label: "出征" },
     { id: "party", label: "队伍" },
     { id: "town", label: "城镇" },
-    { id: "storage", label: "仓库" }
+    { id: "storage", label: "仓库" },
+    { id: "settings", label: "设置" }
   ];
 
   app.innerHTML = `
@@ -733,6 +926,7 @@ function applyPreset(style: "aggressive" | "balanced" | "cautious"): void {
 
   save.activePartyTacticProfileId = profile.id;
   persistSave(save);
+  markOnboardingStep("appliedPreset");
   setEditorFromActiveProfile();
   setBanner(`已应用 ${profile.name} 模板，并同步自动调参。`);
 }
@@ -778,6 +972,86 @@ function applyFailureAssist(style: TacticStyle, questId: string): void {
   save.hintClaims[questId] = (save.hintClaims[questId] ?? 0) + 1;
   persistSave(save);
   setBanner(`连续失败保护已生效：已应用${styleLabel(style)}模板。`);
+}
+
+function setDefaultLogView(view: LogView): void {
+  save.settings = {
+    ...save.settings,
+    defaultLogView: view
+  };
+  ui = { ...ui, logView: view };
+  persistSave(save);
+  setBanner(`默认日志视图已切换为${view === "debug" ? "调试" : "叙事"}。`);
+}
+
+function toggleOnboardingCard(): void {
+  save.settings = {
+    ...save.settings,
+    showOnboardingCard: !save.settings.showOnboardingCard
+  };
+  persistSave(save);
+  setBanner(save.settings.showOnboardingCard ? "已显示新手引导卡。" : "已隐藏新手引导卡。");
+}
+
+function toggleRunNotification(): void {
+  const nextEnabled = !save.settings.notifyOnRunComplete;
+  save.settings = {
+    ...save.settings,
+    notifyOnRunComplete: nextEnabled,
+    notifyFailOnly: nextEnabled ? save.settings.notifyFailOnly : false
+  };
+  persistSave(save);
+  setBanner(nextEnabled ? "出征完成通知已开启。" : "出征完成通知已关闭。");
+}
+
+function toggleNotifyFailOnly(): void {
+  if (!save.settings.notifyOnRunComplete) {
+    setBanner("请先开启出征完成通知。");
+    return;
+  }
+
+  save.settings = {
+    ...save.settings,
+    notifyFailOnly: !save.settings.notifyFailOnly
+  };
+  persistSave(save);
+  setBanner(save.settings.notifyFailOnly ? "已切换为仅失败通知。" : "已切换为全部结果通知。");
+}
+
+function exportSaveBackup(): void {
+  const blob = new Blob([exportSaveString(save)], { type: "application/json;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  link.href = url;
+  link.download = `skywake-save-${stamp}.json`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+  setBanner("存档备份已导出。");
+}
+
+function importSaveBackup(): void {
+  const result = importSaveString(ui.importText);
+  if (!result.ok) {
+    ui = { ...ui, importErrors: [result.error] };
+    setBanner("导入失败，请检查备份内容。");
+    return;
+  }
+
+  save = result.save;
+  ui = {
+    ...ui,
+    selectedRunId: pickDefaultRunId(),
+    logView: save.settings.defaultLogView,
+    logTypeFilter: "all",
+    logReasonFilter: "all",
+    editorText: initialEditorText(),
+    editorErrors: [],
+    importErrors: []
+  };
+  setBanner("导入成功，当前存档已覆盖并完成迁移。");
 }
 
 function parseConfigInput(raw: string, baseline: TacticsConfig): TacticsConfig {
@@ -845,6 +1119,7 @@ function startRun(): void {
   });
 
   save = result.save;
+  markOnboardingStep("startedRun");
   persistSave(save);
 
   ui = {
@@ -856,6 +1131,7 @@ function startRun(): void {
   };
 
   setBanner(`出征完成：${result.run.status} · +${result.run.retainedGold} 金币 / +${result.run.retainedMaterials} 材料`);
+  notifyRunComplete(result.run);
 }
 
 function handleClick(event: MouseEvent): void {
@@ -870,8 +1146,14 @@ function handleClick(event: MouseEvent): void {
 
   if (action === "switch-tab") {
     ui = { ...ui, tab: value as UiState["tab"] };
+    if (value === "party") {
+      markOnboardingStep("openedPartyTab");
+    }
   } else if (action === "set-log-view") {
     ui = { ...ui, logView: value === "debug" ? "debug" : "narrative" };
+    if (value === "debug") {
+      markOnboardingStep("viewedDebugLog");
+    }
   } else if (action === "start-run") {
     startRun();
   } else if (action === "apply-preset") {
@@ -898,14 +1180,50 @@ function handleClick(event: MouseEvent): void {
     }
   } else if (action === "view-run") {
     ui = { ...ui, selectedRunId: value, tab: "expedition" };
+  } else if (action === "guide-open-party") {
+    ui = { ...ui, tab: "party" };
+    markOnboardingStep("openedPartyTab");
+  } else if (action === "guide-apply-balanced") {
+    applyPreset("balanced");
+  } else if (action === "guide-start-run") {
+    startRun();
+  } else if (action === "guide-open-debug-log") {
+    ui = { ...ui, tab: "expedition", logView: "debug" };
+    markOnboardingStep("viewedDebugLog");
+  } else if (action === "dismiss-onboarding") {
+    save.settings = { ...save.settings, showOnboardingCard: false };
+    persistSave(save);
+    setBanner("新手引导卡已隐藏。");
+  } else if (action === "set-default-log-view") {
+    if (value === "narrative" || value === "debug") {
+      setDefaultLogView(value);
+    }
+  } else if (action === "toggle-onboarding-card") {
+    toggleOnboardingCard();
+  } else if (action === "toggle-notify-on-run") {
+    toggleRunNotification();
+  } else if (action === "toggle-notify-fail-only") {
+    toggleNotifyFailOnly();
+  } else if (action === "request-notification-permission") {
+    void requestNotificationPermission();
+  } else if (action === "export-save") {
+    exportSaveBackup();
+  } else if (action === "import-save") {
+    importSaveBackup();
+  } else if (action === "clear-import") {
+    ui = { ...ui, importText: "", importErrors: [] };
+    setBanner("已清空导入内容。");
   } else if (action === "wipe-save") {
     if (window.confirm("确认重置存档？此操作不可撤销。")) {
       save = wipeSave();
       ui = {
         ...ui,
         selectedRunId: "",
+        logView: save.settings.defaultLogView,
         editorText: initialEditorText(),
         editorErrors: [],
+        importText: "",
+        importErrors: [],
         banner: "存档已重置。"
       };
     }
@@ -945,13 +1263,21 @@ function handleChange(event: Event): void {
 function handleInput(event: Event): void {
   const target = event.target;
   if (!(target instanceof HTMLElement)) return;
-  if (target.id !== "rules-editor") return;
   if (!(target instanceof HTMLTextAreaElement)) return;
-
-  ui = {
-    ...ui,
-    editorText: target.value
-  };
+  if (target.id === "rules-editor") {
+    ui = {
+      ...ui,
+      editorText: target.value
+    };
+    return;
+  }
+  if (target.id === "import-editor") {
+    ui = {
+      ...ui,
+      importText: target.value,
+      importErrors: []
+    };
+  }
 }
 
 app.addEventListener("click", handleClick);

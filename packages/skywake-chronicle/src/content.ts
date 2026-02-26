@@ -704,6 +704,18 @@ export function createDefaultSave(): SaveData {
     runCounter: 0,
     activePartyTacticProfileId: balanced.id,
     hintClaims: {},
+    settings: {
+      showOnboardingCard: true,
+      defaultLogView: "narrative",
+      notifyOnRunComplete: false,
+      notifyFailOnly: false
+    },
+    onboarding: {
+      openedPartyTab: false,
+      appliedPreset: false,
+      startedRun: false,
+      viewedDebugLog: false
+    },
     inventory: {
       potion_small: 3,
       phase_calibrator: 0,

@@ -1,4 +1,5 @@
-export type TabId = "expedition" | "party" | "town" | "storage";
+export type TabId = "expedition" | "party" | "town" | "storage" | "settings";
+export type LogView = "narrative" | "debug";
 
 export type Role = "tank" | "dps" | "support";
 export type CharacterClass = "vanguard" | "ranger" | "mystic";
@@ -215,11 +216,27 @@ export interface SaveData {
   runCounter: number;
   activePartyTacticProfileId: string;
   hintClaims: Record<string, number>;
+  settings: SaveSettings;
+  onboarding: OnboardingProgress;
   inventory: Record<string, number>;
   characters: CharacterState[];
   tacticsProfiles: TacticsProfile[];
   quests: QuestState[];
   runs: RunSummary[];
+}
+
+export interface SaveSettings {
+  showOnboardingCard: boolean;
+  defaultLogView: LogView;
+  notifyOnRunComplete: boolean;
+  notifyFailOnly: boolean;
+}
+
+export interface OnboardingProgress {
+  openedPartyTab: boolean;
+  appliedPreset: boolean;
+  startedRun: boolean;
+  viewedDebugLog: boolean;
 }
 
 export interface ExploreRequest {
@@ -242,10 +259,12 @@ export interface UiState {
   selectedDungeonId: string;
   plannedFloor: number;
   selectedRunId: string;
-  logView: "narrative" | "debug";
+  logView: LogView;
   logTypeFilter: EventType | "all";
   logReasonFilter: ReasonTag | "all";
   editorText: string;
   editorErrors: string[];
+  importText: string;
+  importErrors: string[];
   banner: string;
 }
