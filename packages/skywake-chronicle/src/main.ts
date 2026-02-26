@@ -1,4 +1,4 @@
-import { DUNGEONS, INVENTORY_CATALOG, createPresetProfile } from "./content";
+import { DUNGEONS, INVENTORY_CATALOG, createPresetProfile, getItemContentById } from "./content";
 import { estimateRunMinutes, simulateRun, toNarrative } from "./simulator";
 import { loadSave, persistSave, wipeSave } from "./storage";
 import { getActiveProfile, validateTacticsConfig } from "./tactics";
@@ -11,6 +11,15 @@ if (!(appEl instanceof HTMLElement)) {
 const app: HTMLElement = appEl;
 
 let save: SaveData = loadSave();
+
+const REFORGE_RECIPE = {
+  inputItem: "aether_shard",
+  inputCount: 8,
+  goldCost: 90,
+  materialCost: 28,
+  outputItem: "phase_calibrator",
+  outputCount: 1
+} as const;
 
 function pickDefaultRunId(): string {
   return save.runs[0]?.runId ?? "";
@@ -341,6 +350,14 @@ function renderTownTab(): string {
     })
     .join("");
 
+  const shardCount = save.inventory[REFORGE_RECIPE.inputItem] ?? 0;
+  const inputName = getItemContentById(REFORGE_RECIPE.inputItem)?.name ?? REFORGE_RECIPE.inputItem;
+  const outputName = INVENTORY_CATALOG[REFORGE_RECIPE.outputItem]?.name ?? REFORGE_RECIPE.outputItem;
+  const canCraft =
+    shardCount >= REFORGE_RECIPE.inputCount &&
+    save.gold >= REFORGE_RECIPE.goldCost &&
+    save.materials >= REFORGE_RECIPE.materialCost;
+
   return `
     <section class="panel-grid">
       <article class="panel">
@@ -352,6 +369,17 @@ function renderTownTab(): string {
         <h3>商店</h3>
         <p class="hint">当前时段：${currentWindowLabel()}。可用金币：${save.gold}。</p>
         <ul class="touch-list">${shop}</ul>
+      </article>
+
+      <article class="panel">
+        <h3>工坊重铸</h3>
+        <p class="hint">将掉落材料转为关键机关道具，补齐探索循环。</p>
+        <div class="touch-list compact">
+          <div class="touch-item"><span>需求材料</span><strong>${inputName} x${REFORGE_RECIPE.inputCount}（当前 ${shardCount}）</strong></div>
+          <div class="touch-item"><span>需求货币</span><strong>${REFORGE_RECIPE.goldCost} 金币 + ${REFORGE_RECIPE.materialCost} 材料</strong></div>
+          <div class="touch-item"><span>产出</span><strong>${outputName} x${REFORGE_RECIPE.outputCount}</strong></div>
+        </div>
+        <button data-action="craft-calibrator" ${canCraft ? "" : "disabled"}>执行重铸</button>
       </article>
     </section>
   `;
@@ -482,6 +510,28 @@ function buyItem(itemId: string): void {
   setBanner(`购买成功：${item.name} x1`);
 }
 
+function craftPhaseCalibrator(): void {
+  const shardCount = save.inventory[REFORGE_RECIPE.inputItem] ?? 0;
+  if (shardCount < REFORGE_RECIPE.inputCount) {
+    setBanner("碎晶不足，无法重铸。");
+    return;
+  }
+
+  if (save.gold < REFORGE_RECIPE.goldCost || save.materials < REFORGE_RECIPE.materialCost) {
+    setBanner("金币或材料不足，无法重铸。");
+    return;
+  }
+
+  save.inventory[REFORGE_RECIPE.inputItem] = shardCount - REFORGE_RECIPE.inputCount;
+  save.gold -= REFORGE_RECIPE.goldCost;
+  save.materials -= REFORGE_RECIPE.materialCost;
+  save.inventory[REFORGE_RECIPE.outputItem] = (save.inventory[REFORGE_RECIPE.outputItem] ?? 0) + REFORGE_RECIPE.outputCount;
+  persistSave(save);
+
+  const outputName = INVENTORY_CATALOG[REFORGE_RECIPE.outputItem]?.name ?? REFORGE_RECIPE.outputItem;
+  setBanner(`重铸成功：${outputName} x${REFORGE_RECIPE.outputCount}`);
+}
+
 function parseConfigInput(raw: string, baseline: TacticsConfig): TacticsConfig {
   const parsed = JSON.parse(raw) as unknown;
   if (Array.isArray(parsed)) {
@@ -586,6 +636,8 @@ function handleClick(event: MouseEvent): void {
     setBanner("已重置为当前模板规则。");
   } else if (action === "buy-item") {
     buyItem(value);
+  } else if (action === "craft-calibrator") {
+    craftPhaseCalibrator();
   } else if (action === "view-run") {
     ui = { ...ui, selectedRunId: value, tab: "expedition" };
   } else if (action === "wipe-save") {

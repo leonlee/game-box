@@ -1,4 +1,4 @@
-import { assertContentPack, ContentPack, DungeonContent } from "./content-pack";
+import { assertContentPack, ContentPack, DungeonContent, ItemContent, QuestContent } from "./content-pack";
 import { createTacticsConfig, validateTacticsConfig } from "./tactics";
 import {
   DungeonDefinition,
@@ -413,6 +413,14 @@ export const DUNGEONS: DungeonDefinition[] = CONTENT_PACK.dungeons.map((dungeon)
 
 export function getDungeonContentById(dungeonId: string): DungeonContent {
   return CONTENT_PACK.dungeons.find((dungeon) => dungeon.id === dungeonId) ?? CONTENT_PACK.dungeons[0];
+}
+
+export function getItemContentById(itemId: string): ItemContent | undefined {
+  return CONTENT_PACK.items.find((item) => item.id === itemId);
+}
+
+export function getQuestContentById(questId: string): QuestContent | undefined {
+  return CONTENT_PACK.quests.find((quest) => quest.id === questId);
 }
 
 const SHOP_DESC_BY_ID: Record<string, string> = {

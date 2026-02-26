@@ -1,5 +1,5 @@
-import { DUNGEONS, getDungeonContentById } from "./content";
-import { DungeonContent, NodeContent } from "./content-pack";
+import { DUNGEONS, getDungeonContentById, getItemContentById, getQuestContentById } from "./content";
+import { DropEntry, DungeonContent, NodeContent } from "./content-pack";
 import {
   DungeonDefinition,
   EstimateResult,
@@ -55,6 +55,29 @@ function mulberry32(seed: number): () => number {
 
 function pick<T>(rng: () => number, list: readonly T[]): T {
   return list[Math.floor(rng() * list.length) % list.length];
+}
+
+function randomInt(rng: () => number, min: number, max: number): number {
+  const low = Math.min(min, max);
+  const high = Math.max(min, max);
+  return low + Math.floor(rng() * (high - low + 1));
+}
+
+function pickWeightedDrop(rng: () => number, drops: readonly DropEntry[]): DropEntry | null {
+  if (drops.length === 0) return null;
+
+  const totalWeight = drops.reduce((sum, drop) => sum + Math.max(0, drop.weight), 0);
+  if (totalWeight <= 0) return null;
+
+  let cursor = rng() * totalWeight;
+  for (const drop of drops) {
+    cursor -= Math.max(0, drop.weight);
+    if (cursor <= 0) {
+      return drop;
+    }
+  }
+
+  return drops[drops.length - 1];
 }
 
 function roleWeight(role: Role): number {
@@ -130,7 +153,9 @@ function chooseEnemyTarget(rng: () => number, save: SaveData): number {
   return pool[Math.floor(rng() * pool.length) % pool.length];
 }
 
-function updateQuestProgress(save: SaveData, dungeonId: string, reachedFloor: number, status: RunStatus): void {
+function updateQuestProgress(save: SaveData, dungeonId: string, reachedFloor: number, status: RunStatus): string[] {
+  const completedNow: string[] = [];
+
   save.quests.forEach((quest) => {
     if (quest.dungeonId !== dungeonId || quest.status === "completed") return;
 
@@ -147,8 +172,11 @@ function updateQuestProgress(save: SaveData, dungeonId: string, reachedFloor: nu
     if (quest.progressFloor >= quest.targetFloor) {
       quest.status = "completed";
       quest.stableFloor = quest.targetFloor;
+      completedNow.push(quest.id);
     }
   });
+
+  return completedNow;
 }
 
 function gainXp(save: SaveData, reachedFloor: number, status: RunStatus): void {
@@ -215,6 +243,70 @@ function gateModeFromNode(node: NodeContent | undefined): "gate" | "environment"
   if (node.gate_condition.required_aspect) return "environment";
   if (node.gate_condition.time_window) return "time";
   return "none";
+}
+
+interface NodeDropResult {
+  itemId: string;
+  quantity: number;
+}
+
+interface QuestRewardResult {
+  questId: string;
+  gold: number;
+  materials: number;
+  itemId: string | null;
+  itemCount: number;
+}
+
+function rollNodeDrop(rng: () => number, node: NodeContent): NodeDropResult | null {
+  const selected = pickWeightedDrop(rng, node.rewards);
+  if (!selected) return null;
+
+  return {
+    itemId: selected.item_id,
+    quantity: randomInt(rng, selected.min_count, selected.max_count)
+  };
+}
+
+function applyQuestRewards(save: SaveData, questIds: readonly string[]): QuestRewardResult[] {
+  const rewards: QuestRewardResult[] = [];
+
+  questIds.forEach((questId) => {
+    const quest = getQuestContentById(questId);
+    if (!quest) return;
+
+    const rewardData = quest.reward;
+    const gold = typeof rewardData.gold === "number" && Number.isFinite(rewardData.gold) ? Math.max(0, Math.floor(rewardData.gold)) : 0;
+    const materials =
+      typeof rewardData.materials === "number" && Number.isFinite(rewardData.materials)
+        ? Math.max(0, Math.floor(rewardData.materials))
+        : 0;
+
+    const itemId = typeof rewardData.item_id === "string" ? rewardData.item_id : null;
+    const itemCountRaw = rewardData.count;
+    const itemCount =
+      typeof itemCountRaw === "number" && Number.isFinite(itemCountRaw) ? Math.max(1, Math.floor(itemCountRaw)) : 1;
+
+    if (gold > 0) {
+      save.gold += gold;
+    }
+    if (materials > 0) {
+      save.materials += materials;
+    }
+    if (itemId) {
+      save.inventory[itemId] = (save.inventory[itemId] ?? 0) + itemCount;
+    }
+
+    rewards.push({
+      questId,
+      gold,
+      materials,
+      itemId,
+      itemCount: itemId ? itemCount : 0
+    });
+  });
+
+  return rewards;
 }
 
 export function estimateRunMinutes(save: SaveData, request: ExploreRequest): EstimateResult {
@@ -300,6 +392,24 @@ export function simulateRun(save: SaveData, request: ExploreRequest): Simulation
     seq += 1;
   };
 
+  const awardNodeDrop = (floor: number, node: NodeContent): void => {
+    const drop = rollNodeDrop(rng, node);
+    if (!drop) return;
+
+    save.inventory[drop.itemId] = (save.inventory[drop.itemId] ?? 0) + drop.quantity;
+
+    const item = getItemContentById(drop.itemId);
+    if (item && item.item_type !== "quest") {
+      rawGold += Math.max(0, Math.floor((item.sell_price * drop.quantity) / 3));
+    }
+
+    pushEvent(floor, node.id, "loot_drop", "success", {
+      source_node: node.node_type,
+      item_id: drop.itemId,
+      quantity: drop.quantity
+    });
+  };
+
   pushEvent(1, "RUN", "run_start", "success", {
     dungeon_id: dungeon.id,
     planned_floor: plannedFloor,
@@ -351,6 +461,7 @@ export function simulateRun(save: SaveData, request: ExploreRequest): Simulation
             rule_id: partyRule?.id ?? "none",
             rule_eval_trace: partyDecision.traces
           });
+          awardNodeDrop(floor, gateNode);
         } else if (hasKey && used) {
           save.inventory[requiredItemId] = Math.max(0, (save.inventory[requiredItemId] ?? 0) - 1);
           pushEvent(floor, nodeGateId, "overcome_check", "success", {
@@ -359,6 +470,7 @@ export function simulateRun(save: SaveData, request: ExploreRequest): Simulation
             consumed_item: requiredItemId,
             rule_eval_trace: partyDecision.traces
           });
+          awardNodeDrop(floor, gateNode);
         } else {
           status = "retreated";
           pushEvent(
@@ -436,6 +548,7 @@ export function simulateRun(save: SaveData, request: ExploreRequest): Simulation
             rule_id: partyRule?.id ?? "none",
             rule_eval_trace: partyDecision.traces
           });
+          awardNodeDrop(floor, gateNode);
         }
       } else if (blockerType === "time") {
         const currentWindow = getCurrentTimeWindow();
@@ -467,12 +580,14 @@ export function simulateRun(save: SaveData, request: ExploreRequest): Simulation
             expected: expectedWindow,
             current: currentWindow
           });
+          awardNodeDrop(floor, gateNode);
         }
       } else {
         pushEvent(floor, nodeGateId, "overcome_check", "success", {
           gate_id: nodeGateId,
           note: "no_gate_condition"
         });
+        awardNodeDrop(floor, gateNode);
       }
 
       pushEvent(floor, nodeGateId, "node_exit", status === "running" ? "success" : "failed", {
@@ -679,6 +794,10 @@ export function simulateRun(save: SaveData, request: ExploreRequest): Simulation
       }
     }
 
+    if (status === "running" && combatResolved && combatNode) {
+      awardNodeDrop(floor, combatNode);
+    }
+
     if (status === "running" && !combatResolved) {
       status = "retreated";
       pushEvent(
@@ -705,29 +824,39 @@ export function simulateRun(save: SaveData, request: ExploreRequest): Simulation
       break;
     }
 
+    const extraNodes = floorNodes.filter((node) => node.id !== gateNode?.id && node.id !== combatNode?.id);
+    for (const node of extraNodes) {
+      const sceneAspect = pickSceneAspectFromNodeOrPool(rng, node, dungeon);
+      pushEvent(floor, node.id, "node_enter", "success", {
+        node_type: node.node_type,
+        scene_aspect: sceneAspect
+      });
+
+      awardNodeDrop(floor, node);
+
+      pushEvent(floor, node.id, "node_exit", "success", {
+        node_type: node.node_type
+      });
+    }
+
     const floorGold = Math.round((22 + floor * 6) * (elite ? 1.4 : 1));
     const floorMaterials = Math.round((12 + floor * 4) * (elite ? 1.35 : 1));
     rawGold += floorGold;
     rawMaterials += floorMaterials;
-
-    if (rng() < 0.24) {
-      save.inventory.potion_small = (save.inventory.potion_small ?? 0) + 1;
-      pushEvent(floor, `F${floor}_LOOT`, "loot_drop", "success", {
-        item_id: "potion_small",
-        quantity: 1
-      });
-    }
 
     pushEvent(floor, `F${floor}_EXIT`, "floor_leave", "success", {
       reward_gold: floorGold,
       reward_materials: floorMaterials
     });
 
-    updateQuestProgress(save, dungeon.id, floor, status);
+    const completedQuestIds = updateQuestProgress(save, dungeon.id, floor, status);
+    const grantedRewards = applyQuestRewards(save, completedQuestIds);
     pushEvent(floor, `F${floor}_QUEST`, "quest_progress", "success", {
       quest_updates: save.quests
         .filter((quest) => quest.dungeonId === dungeon.id)
-        .map((quest) => ({ id: quest.id, floor: quest.progressFloor, status: quest.status }))
+        .map((quest) => ({ id: quest.id, floor: quest.progressFloor, status: quest.status })),
+      completed_quests: completedQuestIds,
+      granted_rewards: grantedRewards
     });
   }
 
@@ -744,7 +873,14 @@ export function simulateRun(save: SaveData, request: ExploreRequest): Simulation
   save.materials += retained.materials;
 
   gainXp(save, reachedFloor, status);
-  updateQuestProgress(save, dungeon.id, reachedFloor, status);
+  const completedAtEnd = updateQuestProgress(save, dungeon.id, reachedFloor, status);
+  const rewardsAtEnd = applyQuestRewards(save, completedAtEnd);
+  if (completedAtEnd.length > 0) {
+    pushEvent(Math.max(1, reachedFloor), "RUN", "quest_progress", "success", {
+      completed_quests: completedAtEnd,
+      granted_rewards: rewardsAtEnd
+    });
+  }
 
   pushEvent(Math.max(1, reachedFloor), "RUN", "run_end", status === "completed" ? "success" : "partial", {
     status,
