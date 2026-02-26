@@ -208,6 +208,7 @@ export interface PostRunDelta {
   gold: number;
   materials: number;
   fatePoints: number;
+  meta: MetaProgress;
   inventory: Record<string, number>;
   characters: CharacterState[];
   quests: QuestState[];
@@ -236,6 +237,7 @@ export interface SaveData {
   runCounter: number;
   activePartyTacticProfileId: string;
   hintClaims: Record<string, number>;
+  meta: MetaProgress;
   settings: SaveSettings;
   onboarding: OnboardingProgress;
   activeRunPlan: ActiveRunPlan | null;
@@ -261,6 +263,12 @@ export interface OnboardingProgress {
   appliedPreset: boolean;
   startedRun: boolean;
   viewedDebugLog: boolean;
+}
+
+export interface MetaProgress {
+  infirmaryLevel: number;
+  workshopLevel: number;
+  chapterUnlocked: number;
 }
 
 export interface ArchivedRunSummary {

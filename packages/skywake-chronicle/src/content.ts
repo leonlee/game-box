@@ -13,6 +13,11 @@ import {
 export const APP_MAJOR_VERSION = 1;
 export const SAVE_VERSION = 1;
 export const STORAGE_KEY = "skywake_chronicle_save_v1";
+export const DEFAULT_META_PROGRESS = {
+  infirmaryLevel: 1,
+  workshopLevel: 1,
+  chapterUnlocked: 1
+} as const;
 
 function now(): number {
   return Date.now();
@@ -704,6 +709,11 @@ export function createDefaultSave(): SaveData {
     runCounter: 0,
     activePartyTacticProfileId: balanced.id,
     hintClaims: {},
+    meta: {
+      infirmaryLevel: DEFAULT_META_PROGRESS.infirmaryLevel,
+      workshopLevel: DEFAULT_META_PROGRESS.workshopLevel,
+      chapterUnlocked: DEFAULT_META_PROGRESS.chapterUnlocked
+    },
     settings: {
       showOnboardingCard: true,
       defaultLogView: "narrative",

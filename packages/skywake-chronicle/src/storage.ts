@@ -1,4 +1,4 @@
-import { APP_MAJOR_VERSION, SAVE_VERSION, STORAGE_KEY, createDefaultSave } from "./content";
+import { APP_MAJOR_VERSION, DEFAULT_META_PROGRESS, SAVE_VERSION, STORAGE_KEY, createDefaultSave } from "./content";
 import { ACTIONS, createTacticsConfig, validateTacticsConfig } from "./tactics";
 import {
   ActiveRunPlan,
@@ -7,6 +7,7 @@ import {
   ExpeditionTimeScale,
   FallbackByRole,
   LogView,
+  MetaProgress,
   OnboardingProgress,
   SaveData,
   SaveSettings,
@@ -48,6 +49,12 @@ const DEFAULT_ARCHIVED_RUN_SUMMARY: ArchivedRunSummary = {
   progressRateSum: 0,
   retainedGoldSum: 0,
   retainedMaterialsSum: 0
+};
+
+const DEFAULT_META: MetaProgress = {
+  infirmaryLevel: DEFAULT_META_PROGRESS.infirmaryLevel,
+  workshopLevel: DEFAULT_META_PROGRESS.workshopLevel,
+  chapterUnlocked: DEFAULT_META_PROGRESS.chapterUnlocked
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -301,6 +308,47 @@ function normalizeArchivedRunSummary(raw: unknown): { archivedRunSummary: Archiv
   };
 }
 
+function normalizeMetaProgress(raw: unknown): { meta: MetaProgress; changed: boolean } {
+  if (!isRecord(raw)) {
+    return {
+      meta: {
+        infirmaryLevel: DEFAULT_META.infirmaryLevel,
+        workshopLevel: DEFAULT_META.workshopLevel,
+        chapterUnlocked: DEFAULT_META.chapterUnlocked
+      },
+      changed: true
+    };
+  }
+
+  let changed = false;
+  const infirmaryLevel =
+    typeof raw.infirmaryLevel === "number" && Number.isFinite(raw.infirmaryLevel)
+      ? Math.max(1, Math.min(3, Math.floor(raw.infirmaryLevel)))
+      : DEFAULT_META.infirmaryLevel;
+  if (infirmaryLevel !== raw.infirmaryLevel) changed = true;
+
+  const workshopLevel =
+    typeof raw.workshopLevel === "number" && Number.isFinite(raw.workshopLevel)
+      ? Math.max(1, Math.min(3, Math.floor(raw.workshopLevel)))
+      : DEFAULT_META.workshopLevel;
+  if (workshopLevel !== raw.workshopLevel) changed = true;
+
+  const chapterUnlocked =
+    typeof raw.chapterUnlocked === "number" && Number.isFinite(raw.chapterUnlocked)
+      ? Math.max(1, Math.min(9, Math.floor(raw.chapterUnlocked)))
+      : DEFAULT_META.chapterUnlocked;
+  if (chapterUnlocked !== raw.chapterUnlocked) changed = true;
+
+  return {
+    meta: {
+      infirmaryLevel,
+      workshopLevel,
+      chapterUnlocked
+    },
+    changed
+  };
+}
+
 function normalizeInventory(raw: unknown): { inventory: Record<string, number> | null; changed: boolean } {
   if (!isRecord(raw)) {
     return { inventory: null, changed: true };
@@ -426,6 +474,7 @@ function normalizePostRunDelta(raw: unknown): { postRunDelta: ActiveRunPlan["pos
   const fatePoints = typeof raw.fatePoints === "number" && Number.isFinite(raw.fatePoints) && raw.fatePoints >= 0
     ? Math.floor(raw.fatePoints)
     : null;
+  const { meta, changed: metaChanged } = normalizeMetaProgress(raw.meta);
   const { inventory, changed: inventoryChanged } = normalizeInventory(raw.inventory);
   const { characters, changed: charactersChanged } = normalizeCharacters(raw.characters);
   const { quests, changed: questsChanged } = normalizeQuests(raw.quests);
@@ -440,11 +489,12 @@ function normalizePostRunDelta(raw: unknown): { postRunDelta: ActiveRunPlan["pos
       gold,
       materials,
       fatePoints,
+      meta,
       inventory,
       characters,
       quests
     },
-    changed: inventoryChanged || charactersChanged || questsChanged
+    changed: metaChanged || inventoryChanged || charactersChanged || questsChanged
   };
 }
 
@@ -547,6 +597,7 @@ function migrateSave(raw: SaveData): { save: SaveData; changed: boolean } {
 
   const { settings: normalizedSettings, changed: settingsChanged } = normalizeSettings(raw.settings);
   const { onboarding: normalizedOnboarding, changed: onboardingChanged } = normalizeOnboarding(raw.onboarding);
+  const { meta: normalizedMeta, changed: metaChanged } = normalizeMetaProgress(raw.meta);
   const { archivedRunSummary: normalizedArchivedRunSummary, changed: archivedRunSummaryChanged } =
     normalizeArchivedRunSummary(raw.archivedRunSummary);
   const { activeRunPlan: normalizedActiveRunPlan, changed: activeRunPlanChanged } = normalizeActiveRunPlan(raw.activeRunPlan);
@@ -554,6 +605,7 @@ function migrateSave(raw: SaveData): { save: SaveData; changed: boolean } {
   const migrated: SaveData = {
     ...raw,
     hintClaims: normalizedHintClaims,
+    meta: normalizedMeta,
     settings: normalizedSettings,
     onboarding: normalizedOnboarding,
     activeRunPlan: normalizedActiveRunPlan,
@@ -579,7 +631,13 @@ function migrateSave(raw: SaveData): { save: SaveData; changed: boolean } {
   return {
     save: migrated,
     changed:
-      changed || hintClaimsWasMissing || settingsChanged || onboardingChanged || archivedRunSummaryChanged || activeRunPlanChanged
+      changed ||
+      hintClaimsWasMissing ||
+      metaChanged ||
+      settingsChanged ||
+      onboardingChanged ||
+      archivedRunSummaryChanged ||
+      activeRunPlanChanged
   };
 }
 

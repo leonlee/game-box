@@ -31,11 +31,37 @@ const REFORGE_RECIPE = {
   outputItem: "phase_calibrator",
   outputCount: 1
 } as const;
+const FACILITY_MAX_LEVEL = 3;
+const DUNGEON_CHAPTER_REQUIREMENTS: Record<string, number> = {
+  abyssal_archive: 1,
+  storm_spindle: 2
+};
+const FACILITY_UPGRADE_COSTS = {
+  infirmary: [
+    { gold: 220, materials: 90 },
+    { gold: 420, materials: 180 }
+  ],
+  workshop: [
+    { gold: 180, materials: 110 },
+    { gold: 360, materials: 220 }
+  ]
+} as const;
+const CHAPTER_UNLOCK_PLANS = [
+  {
+    chapter: 2,
+    gold: 260,
+    materials: 140,
+    requireInfirmary: 2,
+    requireWorkshop: 2,
+    requireQuestId: "quest_archive_probe"
+  }
+] as const;
 const TIME_SCALE_OPTIONS: readonly ExpeditionTimeScale[] = [1, 4, 10] as const;
 const HAS_MONOTONIC_CLOCK = typeof performance !== "undefined" && typeof performance.now === "function";
 const MONOTONIC_ORIGIN_MS = HAS_MONOTONIC_CLOCK ? Date.now() - performance.now() : Date.now();
 
 type TacticStyle = "aggressive" | "balanced" | "cautious";
+type FacilityId = "infirmary" | "workshop";
 
 interface FailureAssist {
   questId: string;
@@ -124,6 +150,14 @@ interface RecoverySummary {
   consequencesCleared: number;
 }
 
+interface WorkshopRecipeView {
+  inputCount: number;
+  goldCost: number;
+  materialCost: number;
+  outputCount: number;
+  bonusText: string;
+}
+
 function runtimeNow(): number {
   if (!HAS_MONOTONIC_CLOCK) return Date.now();
   return Math.floor(MONOTONIC_ORIGIN_MS + performance.now());
@@ -194,6 +228,22 @@ function hasValidPostRunDelta(delta: unknown): delta is ActiveRunPlan["postRunDe
     typeof value.fatePoints !== "number" ||
     !Number.isFinite(value.fatePoints) ||
     value.fatePoints < 0
+  ) {
+    return false;
+  }
+
+  if (!value.meta || typeof value.meta !== "object" || Array.isArray(value.meta)) return false;
+  const meta = value.meta as Record<string, unknown>;
+  if (
+    typeof meta.infirmaryLevel !== "number" ||
+    !Number.isFinite(meta.infirmaryLevel) ||
+    meta.infirmaryLevel < 1 ||
+    typeof meta.workshopLevel !== "number" ||
+    !Number.isFinite(meta.workshopLevel) ||
+    meta.workshopLevel < 1 ||
+    typeof meta.chapterUnlocked !== "number" ||
+    !Number.isFinite(meta.chapterUnlocked) ||
+    meta.chapterUnlocked < 1
   ) {
     return false;
   }
@@ -383,6 +433,157 @@ function currentWindowLabel(): "白昼" | "夜幕" {
   return hour >= 6 && hour < 18 ? "白昼" : "夜幕";
 }
 
+function runStatusLabel(status: SaveData["runs"][number]["status"]): string {
+  if (status === "running") return "进行中";
+  if (status === "completed") return "完成";
+  if (status === "retreated") return "撤退";
+  if (status === "failed") return "失败";
+  return status;
+}
+
+function runStatusLabelFromUnknown(status: unknown): string {
+  if (status === "running" || status === "completed" || status === "retreated" || status === "failed") {
+    return runStatusLabel(status);
+  }
+  if (typeof status === "string" && status.length > 0) {
+    return status;
+  }
+  return "未知";
+}
+
+function questStatusLabel(status: SaveData["quests"][number]["status"]): string {
+  return status === "completed" ? "已完成" : "进行中";
+}
+
+function roleLabel(role: SaveData["characters"][number]["role"]): string {
+  if (role === "tank") return "前卫";
+  if (role === "dps") return "输出";
+  if (role === "support") return "辅助";
+  return role;
+}
+
+function eventTypeLabel(eventType: EventType): string {
+  const labels: Record<EventType, string> = {
+    run_start: "出征开始",
+    run_end: "出征结算",
+    floor_enter: "进入楼层",
+    floor_leave: "离开楼层",
+    node_enter: "进入节点",
+    node_exit: "离开节点",
+    combat_start: "战斗开始",
+    combat_action: "战斗行动",
+    combat_end: "战斗结束",
+    overcome_check: "机关判定",
+    loot_drop: "掉落获取",
+    retreat_triggered: "触发撤退",
+    gate_blocked: "机关阻断",
+    quest_progress: "任务进度"
+  };
+  return labels[eventType] ?? eventType;
+}
+
+function outcomeLabel(outcome: RunEvent["outcome"]): string {
+  if (outcome === "success") return "成功";
+  if (outcome === "partial") return "部分成功";
+  if (outcome === "failed") return "失败";
+  return outcome;
+}
+
+function combatActionLabel(action: unknown): string {
+  if (action === "attack_skill") return "技能攻击";
+  if (action === "defend_stance") return "防御架势";
+  if (action === "create_advantage") return "制造优势";
+  if (action === "overcome_obstacle") return "克服障碍";
+  if (action === "use_consumable") return "使用消耗品";
+  if (action === "save_resource_mode") return "资源回收";
+  if (action === "retreat_combat") return "战斗撤退";
+  if (action === "retreat_explore") return "探索撤退";
+  if (action === "use_key_item_slot") return "使用关键道具";
+  if (action === "basic_attack") return "普通攻击";
+  if (action === "wait") return "待机";
+  if (action === "swap_target") return "切换目标";
+  if (action === "mark_priority_target") return "标记重点目标";
+  if (action === "cleanse_ally") return "净化队友";
+  return String(action ?? "动作");
+}
+
+function requiredChapterForDungeon(dungeonId: string): number {
+  return DUNGEON_CHAPTER_REQUIREMENTS[dungeonId] ?? 1;
+}
+
+function isDungeonUnlocked(dungeonId: string): boolean {
+  return save.meta.chapterUnlocked >= requiredChapterForDungeon(dungeonId);
+}
+
+function firstUnlockedDungeonId(): string {
+  const first = DUNGEONS.find((dungeon) => isDungeonUnlocked(dungeon.id));
+  return first?.id ?? DUNGEONS[0].id;
+}
+
+function facilityLabel(id: FacilityId): string {
+  return id === "infirmary" ? "疗养所" : "工坊";
+}
+
+function getFacilityLevel(id: FacilityId): number {
+  if (id === "infirmary") return Math.max(1, Math.min(FACILITY_MAX_LEVEL, Math.floor(save.meta.infirmaryLevel)));
+  return Math.max(1, Math.min(FACILITY_MAX_LEVEL, Math.floor(save.meta.workshopLevel)));
+}
+
+function getNextFacilityUpgradeCost(id: FacilityId): { gold: number; materials: number } | null {
+  const level = getFacilityLevel(id);
+  if (level >= FACILITY_MAX_LEVEL) return null;
+  const costs = FACILITY_UPGRADE_COSTS[id];
+  return costs[level - 1] ?? null;
+}
+
+function getWorkshopRecipeView(): WorkshopRecipeView {
+  const level = getFacilityLevel("workshop");
+  const tier = Math.max(1, Math.min(FACILITY_MAX_LEVEL, level));
+  const inputCount = Math.max(4, REFORGE_RECIPE.inputCount - (tier - 1));
+  const goldCost = Math.max(30, REFORGE_RECIPE.goldCost - (tier - 1) * 15);
+  const materialCost = Math.max(10, REFORGE_RECIPE.materialCost - (tier - 1) * 6);
+  const outputCount = REFORGE_RECIPE.outputCount + (tier >= 3 ? 1 : 0);
+
+  return {
+    inputCount,
+    goldCost,
+    materialCost,
+    outputCount,
+    bonusText:
+      tier >= 3 ? "成本降低并额外产出 +1" : tier === 2 ? "成本降低（碎晶/金币/材料）" : "基础配方（无加成）"
+  };
+}
+
+function getNextChapterUnlockPlan() {
+  return CHAPTER_UNLOCK_PLANS.find((plan) => plan.chapter === save.meta.chapterUnlocked + 1) ?? null;
+}
+
+function getChapterUnlockIssues(
+  plan: NonNullable<ReturnType<typeof getNextChapterUnlockPlan>>
+): string[] {
+  const issues: string[] = [];
+
+  if (getFacilityLevel("infirmary") < plan.requireInfirmary) {
+    issues.push(`疗养所需达到 Lv.${plan.requireInfirmary}`);
+  }
+  if (getFacilityLevel("workshop") < plan.requireWorkshop) {
+    issues.push(`工坊需达到 Lv.${plan.requireWorkshop}`);
+  }
+  const quest = save.quests.find((item) => item.id === plan.requireQuestId);
+  if (!quest || quest.status !== "completed") {
+    issues.push("需完成主线委托「渊书库校验」");
+  }
+
+  if (save.gold < plan.gold) {
+    issues.push(`金币不足（需要 ${plan.gold}）`);
+  }
+  if (save.materials < plan.materials) {
+    issues.push(`材料不足（需要 ${plan.materials}）`);
+  }
+
+  return issues;
+}
+
 function setBanner(text: string): void {
   ui = { ...ui, banner: text };
 }
@@ -411,7 +612,7 @@ function summarizeReasonCounts(tags: ReasonTag[]): string {
   });
 
   return [...counts.entries()]
-    .map(([tag, count]) => `${tag} x${count}`)
+    .map(([tag, count]) => `${reasonText(tag)} x${count}`)
     .join(" / ");
 }
 
@@ -439,17 +640,17 @@ function chapterLabelForEvent(event: RunEvent): string {
 
 function summaryLine(event: RunEvent): string {
   if (event.event_type === "combat_action") {
-    return `${String(event.payload.actor_name ?? "队员")} · ${String(event.payload.action ?? "动作")} · ${event.outcome}`;
+    return `${String(event.payload.actor_name ?? "队员")} · ${combatActionLabel(event.payload.action)} · ${outcomeLabel(event.outcome)}`;
   }
   if (event.event_type === "overcome_check") {
-    return `机关处理 · ${event.outcome}`;
+    return `机关处理 · ${outcomeLabel(event.outcome)}`;
   }
   if (event.event_type === "run_end") {
     const recovery = asRecoverySummary(event.payload.recovery);
     const recoveryText = recovery
       ? ` · 恢复 体力+${recovery.stressRecovered} 心智+${recovery.mentalRecovered} 资源+${recovery.resourceRecovered}`
       : "";
-    return `出征${String(event.payload.status ?? "unknown")} · +${String(event.payload.retained_gold ?? 0)}G +${String(event.payload.retained_materials ?? 0)}M${recoveryText}`;
+    return `出征${runStatusLabelFromUnknown(event.payload.status)} · +${String(event.payload.retained_gold ?? 0)}G +${String(event.payload.retained_materials ?? 0)}M${recoveryText}`;
   }
   return toNarrative(event);
 }
@@ -462,6 +663,13 @@ function getRunRecovery(run: SaveData["runs"][number] | null): RecoverySummary |
 }
 
 function styleLabel(style: TacticStyle): string {
+  if (style === "aggressive") return "好斗";
+  if (style === "cautious") return "谨慎";
+  return "均衡";
+}
+
+function profileStyleLabel(style: SaveData["tacticsProfiles"][number]["style"]): string {
+  if (style === "custom") return "自定义";
   if (style === "aggressive") return "好斗";
   if (style === "cautious") return "谨慎";
   return "均衡";
@@ -912,7 +1120,7 @@ function notifyRunComplete(run: SaveData["runs"][number]): void {
   if (Notification.permission !== "granted") return;
 
   const title = run.status === "completed" ? "Skywake 出征完成" : "Skywake 出征告警";
-  const body = `状态 ${run.status} · 层数 ${run.reachedFloor}/${run.plannedFloor} · +${run.retainedGold}G +${run.retainedMaterials}M`;
+  const body = `状态 ${runStatusLabel(run.status)} · 层数 ${run.reachedFloor}/${run.plannedFloor} · +${run.retainedGold}G +${run.retainedMaterials}M`;
   try {
     new Notification(title, { body });
   } catch {
@@ -959,6 +1167,7 @@ function finalizeActiveRunIfDue(force = false): boolean {
     gold: Math.floor(postRunDelta.gold),
     materials: Math.floor(postRunDelta.materials),
     fatePoints: Math.floor(postRunDelta.fatePoints),
+    meta: cloneJson(postRunDelta.meta),
     inventory: cloneJson(postRunDelta.inventory),
     characters: cloneJson(postRunDelta.characters),
     quests: cloneJson(postRunDelta.quests),
@@ -984,7 +1193,7 @@ function finalizeActiveRunIfDue(force = false): boolean {
       logReasonFilter: "all"
     };
     setBanner(
-      `出征完成：${finishedRun.status} · +${finishedRun.retainedGold} 金币 / +${finishedRun.retainedMaterials} 材料`
+      `出征完成：${runStatusLabel(finishedRun.status)} · +${finishedRun.retainedGold} 金币 / +${finishedRun.retainedMaterials} 材料`
     );
     notifyRunComplete(finishedRun);
   } else {
@@ -1003,7 +1212,7 @@ function renderCharacterCards(): string {
       <article class="touch-card">
         <header>
           <h4>${escapeHtml(character.name)}</h4>
-          <span class="chip">${character.role}</span>
+          <span class="chip">${roleLabel(character.role)}</span>
         </header>
         <div class="meter-row">
           <label>Stress</label>
@@ -1024,6 +1233,8 @@ function renderCharacterCards(): string {
 
 function renderExpeditionTab(): string {
   const dungeon = getDungeon();
+  const requiredChapter = requiredChapterForDungeon(dungeon.id);
+  const dungeonLocked = !isDungeonUnlocked(dungeon.id);
   const estimate = estimateRunMinutes(save, { dungeonId: dungeon.id, plannedFloor: ui.plannedFloor });
   const scaledMinMinutes = Math.max(0.2, Number((estimate.minMinutes / save.settings.expeditionTimeScale).toFixed(1)));
   const scaledMaxMinutes = Math.max(scaledMinMinutes, Number((estimate.maxMinutes / save.settings.expeditionTimeScale).toFixed(1)));
@@ -1067,7 +1278,7 @@ function renderExpeditionTab(): string {
   const logItems = filteredEvents
     .map((event) => {
       const expanded = ui.expandedLogSeq === event.seq;
-      const tagLine = event.reason_tags.length > 0 ? `<p class="tags">${event.reason_tags.join(", ")}</p>` : "";
+      const tagLine = event.reason_tags.length > 0 ? `<p class="tags">${event.reason_tags.map(reasonText).join("，")}</p>` : "";
       const chapterHeader =
         ui.logView === "narrative" && chapterBreakSeqs.has(event.seq)
           ? `<p class="chapter-label">${escapeHtml(chapterLabelForEvent(event))}</p>`
@@ -1096,12 +1307,12 @@ function renderExpeditionTab(): string {
         ${chapterHeader}
         <div class="row">
           <strong>#${event.seq}</strong>
-          <span>${event.event_type}</span>
+          <span>${eventTypeLabel(event.event_type)}</span>
           <span>F${event.floor}</span>
         </div>
         <p class="summary-line">${escapeHtml(summaryLine(event))}</p>
         <div class="row">
-          <span class="hint">${event.reason_tags.length > 0 ? `${event.reason_tags.length} tags` : "无标签"}</span>
+          <span class="hint">${event.reason_tags.length > 0 ? `${event.reason_tags.length} 个标签` : "无标签"}</span>
           <button data-action="toggle-log-expand" data-value="${event.seq}">${expanded ? "收起" : "展开"}</button>
         </div>
         ${detailBlock}
@@ -1118,13 +1329,19 @@ function renderExpeditionTab(): string {
         <h3>出征配置</h3>
         <label class="field">迷宫
           <select id="dungeon-select">
-            ${DUNGEONS.map(
-              (item) =>
-                `<option value="${item.id}" ${item.id === dungeon.id ? "selected" : ""}>${escapeHtml(item.name)} · 推荐Lv.${item.recommendedLevel}</option>`
-            ).join("")}
+            ${DUNGEONS.map((item) => {
+              const locked = !isDungeonUnlocked(item.id);
+              const chapter = requiredChapterForDungeon(item.id);
+              return `<option value="${item.id}" ${item.id === dungeon.id ? "selected" : ""} ${locked ? "disabled" : ""}>${escapeHtml(item.name)} · 推荐Lv.${item.recommendedLevel}${locked ? `（第${chapter}章解锁）` : ""}</option>`;
+            }).join("")}
           </select>
         </label>
         <p class="hint">${escapeHtml(dungeon.flavor)}</p>
+        ${
+          dungeonLocked
+            ? `<p class="hint">当前迷宫未解锁：需要推进至第 ${requiredChapter} 章（当前第 ${save.meta.chapterUnlocked} 章）。</p>`
+            : ""
+        }
 
         <label class="field">目标层数
           <input id="planned-floor" type="range" min="1" max="${dungeon.maxFloor}" step="1" value="${ui.plannedFloor}">
@@ -1146,12 +1363,16 @@ function renderExpeditionTab(): string {
           </div>
           <div class="touch-item">
             <span>重惩罚规则</span>
-            <strong>completed 100% / retreated 45%-60% / failed 20%-30%</strong>
+            <strong>完成 100% / 撤退 45%-60% / 失败 20%-30%</strong>
+          </div>
+          <div class="touch-item">
+            <span>章节门槛</span>
+            <strong>第 ${requiredChapter} 章（当前第 ${save.meta.chapterUnlocked} 章）</strong>
           </div>
         </div>
 
-        <button class="primary" data-action="start-run" ${runInProgress ? "disabled" : ""}>
-          ${runInProgress ? "探险进行中" : "派遣小队"}
+        <button class="primary" data-action="start-run" ${runInProgress || dungeonLocked ? "disabled" : ""}>
+          ${runInProgress ? "探险进行中" : dungeonLocked ? "章节未解锁" : "派遣小队"}
         </button>
       </article>
 
@@ -1160,15 +1381,15 @@ function renderExpeditionTab(): string {
           ? `<article class="panel">
               <h3>实时探险进度</h3>
               <div class="touch-list compact">
-                <div class="touch-item"><span>Run ID</span><strong>${activeRunSnapshot.run.runId}</strong></div>
-                <div class="touch-item"><span>状态</span><strong>${activeRunSnapshot.paused ? "paused（已暂停）" : "running（进行中）"}</strong></div>
+                <div class="touch-item"><span>出征编号</span><strong>${activeRunSnapshot.run.runId}</strong></div>
+                <div class="touch-item"><span>状态</span><strong>${activeRunSnapshot.paused ? "已暂停" : "进行中"}</strong></div>
                 <div class="touch-item"><span>推进层数</span><strong>${activeRunSnapshot.run.reachedFloor} / ${activeRunSnapshot.run.plannedFloor}</strong></div>
                 <div class="touch-item"><span>进度</span><strong>${percentText(activeRunSnapshot.progressRate)}</strong></div>
                 <div class="touch-item"><span>剩余时间</span><strong>${formatCountdown(activeRunSnapshot.remainingMs)}</strong></div>
                 <div class="touch-item"><span>预计返航</span><strong>${new Date(activeRunSnapshot.expectedFinishAt).toLocaleTimeString()}</strong></div>
                 <div class="touch-item"><span>下一关键事件</span><strong>${
                   activeRunSnapshot.nextEvent
-                    ? `F${activeRunSnapshot.nextEvent.event.floor} · ${activeRunSnapshot.nextEvent.event.event_type}（${formatCountdown(activeRunSnapshot.nextEvent.etaMs)}）`
+                    ? `F${activeRunSnapshot.nextEvent.event.floor} · ${eventTypeLabel(activeRunSnapshot.nextEvent.event.event_type)}（${formatCountdown(activeRunSnapshot.nextEvent.etaMs)}）`
                     : "无"
                 }</strong></div>
               </div>
@@ -1187,11 +1408,11 @@ function renderExpeditionTab(): string {
         ${
           run
             ? `<div class="touch-list compact">
-                <div class="touch-item"><span>Run ID</span><strong>${run.runId}</strong></div>
+                <div class="touch-item"><span>出征编号</span><strong>${run.runId}</strong></div>
                 <div class="touch-item"><span>状态</span><strong>${
                   activeRunSnapshot && run.runId === activeRunSnapshot.run.runId && activeRunSnapshot.paused
-                    ? "paused（已暂停）"
-                    : run.status
+                    ? "已暂停"
+                    : runStatusLabel(run.status)
                 }</strong></div>
                 <div class="touch-item"><span>层数</span><strong>${run.reachedFloor} / ${run.plannedFloor}</strong></div>
                 <div class="touch-item"><span>结算</span><strong>+${run.retainedGold} 金币 / +${run.retainedMaterials} 材料</strong></div>
@@ -1267,7 +1488,7 @@ function renderExpeditionTab(): string {
                     (item, index) => `<li class="touch-item ${index === replayIndex ? "active" : ""}">
                         <div class="row">
                           <strong>#${item.seq}</strong>
-                          <span>${item.eventType}</span>
+                          <span>${eventTypeLabel(item.eventType)}</span>
                           <span>F${item.floor}</span>
                         </div>
                         <p>${escapeHtml(item.summary)}</p>
@@ -1297,7 +1518,7 @@ function renderExpeditionTab(): string {
                 <div class="touch-item"><span>完成 / 撤退 / 失败</span><strong>${percentText(analytics.completionRate)} / ${percentText(analytics.retreatRate)} / ${percentText(analytics.failRate)}</strong></div>
                 <div class="touch-item"><span>平均推进</span><strong>${percentText(analytics.avgProgressRate)}</strong></div>
                 <div class="touch-item"><span>平均结算</span><strong>+${Math.round(analytics.avgRetainedGold)}G / +${Math.round(analytics.avgRetainedMaterials)}M</strong></div>
-                <div class="touch-item"><span>样本</span><strong>${analytics.sampleSize} runs</strong></div>
+                <div class="touch-item"><span>样本</span><strong>${analytics.sampleSize} 次出征</strong></div>
               </div>
               <div class="touch-list compact">
                 ${
@@ -1350,7 +1571,7 @@ function renderExpeditionTab(): string {
             ]
               .map(
                 (type) =>
-                  `<option value="${type}" ${ui.logTypeFilter === type ? "selected" : ""}>${type}</option>`
+                  `<option value="${type}" ${ui.logTypeFilter === type ? "selected" : ""}>${eventTypeLabel(type as EventType)}</option>`
               )
               .join("")}
           </select>
@@ -1361,7 +1582,7 @@ function renderExpeditionTab(): string {
             ${allReasons
               .map(
                 (tag) =>
-                  `<option value="${tag}" ${ui.logReasonFilter === tag ? "selected" : ""}>${tag}</option>`
+                  `<option value="${tag}" ${ui.logReasonFilter === tag ? "selected" : ""}>${reasonText(tag)}</option>`
               )
               .join("")}
           </select>
@@ -1402,10 +1623,10 @@ function renderPartyTab(): string {
             })
             .join("")}
         </div>
-        <p class="hint">当前配置：${escapeHtml(profile.name)}（${profile.style}）</p>
+        <p class="hint">当前配置：${escapeHtml(profile.name)}（${profileStyleLabel(profile.style)}）</p>
 
         <div class="touch-list compact">
-          <div class="touch-item"><span>fallback</span><strong>tank=${profile.config.fallback_by_role.tank}, dps=${profile.config.fallback_by_role.dps}, support=${profile.config.fallback_by_role.support}</strong></div>
+          <div class="touch-item"><span>默认动作</span><strong>前卫=${profile.config.fallback_by_role.tank}, 输出=${profile.config.fallback_by_role.dps}, 辅助=${profile.config.fallback_by_role.support}</strong></div>
           <div class="touch-item"><span>规则数量</span><strong>${profile.config.rules.length}</strong></div>
           <div class="touch-item"><span>更新时间</span><strong>${new Date(profile.updatedAt).toLocaleString()}</strong></div>
         </div>
@@ -1436,7 +1657,7 @@ function renderTownTab(): string {
       <li class="touch-item">
         <div class="row">
           <strong>${escapeHtml(quest.title)}</strong>
-          <span class="chip ${quest.status === "completed" ? "done" : ""}">${quest.status}</span>
+          <span class="chip ${quest.status === "completed" ? "done" : ""}">${questStatusLabel(quest.status)}</span>
         </div>
         <p>${escapeHtml(quest.description)}</p>
         <p class="hint">进度：${quest.progressFloor}/${quest.targetFloor}（稳定节点 ${quest.stableFloor}）</p>
@@ -1458,16 +1679,56 @@ function renderTownTab(): string {
     })
     .join("");
 
+  const workshopRecipe = getWorkshopRecipeView();
   const shardCount = save.inventory[REFORGE_RECIPE.inputItem] ?? 0;
   const inputName = getItemContentById(REFORGE_RECIPE.inputItem)?.name ?? REFORGE_RECIPE.inputItem;
   const outputName = INVENTORY_CATALOG[REFORGE_RECIPE.outputItem]?.name ?? REFORGE_RECIPE.outputItem;
+  const infirmaryLevel = getFacilityLevel("infirmary");
+  const workshopLevel = getFacilityLevel("workshop");
+  const infirmaryNextCost = getNextFacilityUpgradeCost("infirmary");
+  const workshopNextCost = getNextFacilityUpgradeCost("workshop");
+  const chapterPlan = getNextChapterUnlockPlan();
+  const chapterIssues = chapterPlan ? getChapterUnlockIssues(chapterPlan) : [];
+  const chapterReady = chapterPlan != null && chapterIssues.length === 0;
   const canCraft =
-    shardCount >= REFORGE_RECIPE.inputCount &&
-    save.gold >= REFORGE_RECIPE.goldCost &&
-    save.materials >= REFORGE_RECIPE.materialCost;
+    shardCount >= workshopRecipe.inputCount &&
+    save.gold >= workshopRecipe.goldCost &&
+    save.materials >= workshopRecipe.materialCost;
 
   return `
     <section class="panel-grid">
+      <article class="panel">
+        <h3>设施与航线</h3>
+        <div class="touch-list compact">
+          <div class="touch-item"><span>疗养所</span><strong>Lv.${infirmaryLevel} / ${FACILITY_MAX_LEVEL}</strong></div>
+          <div class="touch-item"><span>工坊</span><strong>Lv.${workshopLevel} / ${FACILITY_MAX_LEVEL}</strong></div>
+          <div class="touch-item"><span>章节进度</span><strong>第 ${save.meta.chapterUnlocked} 章</strong></div>
+        </div>
+        <div class="inline-buttons wrap">
+          <button data-action="upgrade-infirmary" ${infirmaryNextCost ? "" : "disabled"}>
+            ${infirmaryNextCost ? `升级疗养所（${infirmaryNextCost.gold}G/${infirmaryNextCost.materials}M）` : "疗养所已满级"}
+          </button>
+          <button data-action="upgrade-workshop" ${workshopNextCost ? "" : "disabled"}>
+            ${workshopNextCost ? `升级工坊（${workshopNextCost.gold}G/${workshopNextCost.materials}M）` : "工坊已满级"}
+          </button>
+        </div>
+        ${
+          chapterPlan
+            ? `<div class="touch-list compact">
+                <div class="touch-item"><span>下一章节</span><strong>第 ${chapterPlan.chapter} 章</strong></div>
+                <div class="touch-item"><span>推进消耗</span><strong>${chapterPlan.gold}G / ${chapterPlan.materials}M</strong></div>
+                <div class="touch-item"><span>条件</span><strong>疗养所 Lv.${chapterPlan.requireInfirmary} + 工坊 Lv.${chapterPlan.requireWorkshop}</strong></div>
+              </div>
+              <button data-action="unlock-next-chapter" class="${chapterReady ? "primary" : ""}" ${chapterReady ? "" : "disabled"}>推进到第 ${chapterPlan.chapter} 章</button>
+              ${
+                chapterIssues.length > 0
+                  ? `<p class="hint">未满足：${escapeHtml(chapterIssues.join("；"))}</p>`
+                  : `<p class="hint">条件已满足，推进后可解锁新的出征航线。</p>`
+              }`
+            : `<p class="hint">当前版本章节已全部解锁。</p>`
+        }
+      </article>
+
       <article class="panel">
         <h3>委托板</h3>
         <ul class="touch-list">${quests}</ul>
@@ -1481,11 +1742,11 @@ function renderTownTab(): string {
 
       <article class="panel">
         <h3>工坊重铸</h3>
-        <p class="hint">将掉落材料转为关键机关道具，补齐探索循环。</p>
+        <p class="hint">将掉落材料转为关键机关道具，补齐探索循环。当前加成：${workshopRecipe.bonusText}。</p>
         <div class="touch-list compact">
-          <div class="touch-item"><span>需求材料</span><strong>${inputName} x${REFORGE_RECIPE.inputCount}（当前 ${shardCount}）</strong></div>
-          <div class="touch-item"><span>需求货币</span><strong>${REFORGE_RECIPE.goldCost} 金币 + ${REFORGE_RECIPE.materialCost} 材料</strong></div>
-          <div class="touch-item"><span>产出</span><strong>${outputName} x${REFORGE_RECIPE.outputCount}</strong></div>
+          <div class="touch-item"><span>需求材料</span><strong>${inputName} x${workshopRecipe.inputCount}（当前 ${shardCount}）</strong></div>
+          <div class="touch-item"><span>需求货币</span><strong>${workshopRecipe.goldCost} 金币 + ${workshopRecipe.materialCost} 材料</strong></div>
+          <div class="touch-item"><span>产出</span><strong>${outputName} x${workshopRecipe.outputCount}</strong></div>
         </div>
         <button data-action="craft-calibrator" ${canCraft ? "" : "disabled"}>执行重铸</button>
       </article>
@@ -1513,7 +1774,7 @@ function renderStorageTab(): string {
       <li class="touch-item ${active ? "active" : ""}">
         <div class="row">
           <strong>${run.runId}</strong>
-          <span>${paused ? "paused（已暂停）" : inProgress ? "running（进行中）" : run.status}</span>
+          <span>${paused ? "已暂停" : inProgress ? "进行中" : runStatusLabel(run.status)}</span>
         </div>
         <p>迷宫 ${run.dungeonId} · 层数 ${run.reachedFloor}/${run.plannedFloor} · +${run.retainedGold}G +${run.retainedMaterials}M</p>
         ${inProgress && activeRunSnapshot ? `<p class="hint">${paused ? "探险已暂停" : `预计剩余 ${formatCountdown(activeRunSnapshot.remainingMs)}`}</p>` : ""}
@@ -1724,6 +1985,70 @@ function applyPreset(style: "aggressive" | "balanced" | "cautious"): void {
   setBanner(`已应用 ${profile.name} 模板，并同步自动调参。`);
 }
 
+function upgradeFacility(facilityId: FacilityId): void {
+  const level = getFacilityLevel(facilityId);
+  const nextCost = getNextFacilityUpgradeCost(facilityId);
+  if (!nextCost) {
+    setBanner(`${facilityLabel(facilityId)}已达到最高等级。`);
+    return;
+  }
+
+  if (save.gold < nextCost.gold || save.materials < nextCost.materials) {
+    setBanner(`${facilityLabel(facilityId)}升级资源不足。`);
+    return;
+  }
+
+  const nextLevel = level + 1;
+  save = {
+    ...save,
+    gold: save.gold - nextCost.gold,
+    materials: save.materials - nextCost.materials,
+    meta: {
+      ...save.meta,
+      infirmaryLevel: facilityId === "infirmary" ? nextLevel : save.meta.infirmaryLevel,
+      workshopLevel: facilityId === "workshop" ? nextLevel : save.meta.workshopLevel
+    }
+  };
+  persistSave(save);
+
+  if (facilityId === "infirmary") {
+    setBanner(`疗养所升级完成：Lv.${nextLevel}（返航恢复提升）。`);
+  } else {
+    setBanner(`工坊升级完成：Lv.${nextLevel}（重铸成本下降${nextLevel >= 3 ? "并提升产出" : ""}）。`);
+  }
+}
+
+function unlockNextChapter(): void {
+  const plan = getNextChapterUnlockPlan();
+  if (!plan) {
+    setBanner("当前章节已全部解锁。");
+    return;
+  }
+
+  const issues = getChapterUnlockIssues(plan);
+  if (issues.length > 0) {
+    setBanner(`章节推进条件未满足：${issues[0]}。`);
+    return;
+  }
+
+  save = {
+    ...save,
+    gold: save.gold - plan.gold,
+    materials: save.materials - plan.materials,
+    meta: {
+      ...save.meta,
+      chapterUnlocked: plan.chapter
+    }
+  };
+  persistSave(save);
+
+  const unlocked = DUNGEONS.filter((dungeon) => requiredChapterForDungeon(dungeon.id) === plan.chapter)
+    .map((dungeon) => dungeon.name)
+    .join("、");
+  const unlockedText = unlocked.length > 0 ? `，新增航线：${unlocked}` : "";
+  setBanner(`章节推进完成：已解锁第 ${plan.chapter} 章${unlockedText}。`);
+}
+
 function buyItem(itemId: string): void {
   const item = INVENTORY_CATALOG[itemId];
   if (!item) return;
@@ -1739,25 +2064,26 @@ function buyItem(itemId: string): void {
 }
 
 function craftPhaseCalibrator(): void {
+  const recipe = getWorkshopRecipeView();
   const shardCount = save.inventory[REFORGE_RECIPE.inputItem] ?? 0;
-  if (shardCount < REFORGE_RECIPE.inputCount) {
+  if (shardCount < recipe.inputCount) {
     setBanner("碎晶不足，无法重铸。");
     return;
   }
 
-  if (save.gold < REFORGE_RECIPE.goldCost || save.materials < REFORGE_RECIPE.materialCost) {
+  if (save.gold < recipe.goldCost || save.materials < recipe.materialCost) {
     setBanner("金币或材料不足，无法重铸。");
     return;
   }
 
-  save.inventory[REFORGE_RECIPE.inputItem] = shardCount - REFORGE_RECIPE.inputCount;
-  save.gold -= REFORGE_RECIPE.goldCost;
-  save.materials -= REFORGE_RECIPE.materialCost;
-  save.inventory[REFORGE_RECIPE.outputItem] = (save.inventory[REFORGE_RECIPE.outputItem] ?? 0) + REFORGE_RECIPE.outputCount;
+  save.inventory[REFORGE_RECIPE.inputItem] = shardCount - recipe.inputCount;
+  save.gold -= recipe.goldCost;
+  save.materials -= recipe.materialCost;
+  save.inventory[REFORGE_RECIPE.outputItem] = (save.inventory[REFORGE_RECIPE.outputItem] ?? 0) + recipe.outputCount;
   persistSave(save);
 
   const outputName = INVENTORY_CATALOG[REFORGE_RECIPE.outputItem]?.name ?? REFORGE_RECIPE.outputItem;
-  setBanner(`重铸成功：${outputName} x${REFORGE_RECIPE.outputCount}`);
+  setBanner(`重铸成功：${outputName} x${recipe.outputCount}`);
 }
 
 function applyFailureAssist(style: TacticStyle, questId: string): void {
@@ -1995,6 +2321,13 @@ function startRun(): void {
   }
 
   const dungeon = getDungeon();
+  if (!isDungeonUnlocked(dungeon.id)) {
+    const chapterNeed = requiredChapterForDungeon(dungeon.id);
+    setBanner(`该迷宫尚未开放，需要第 ${chapterNeed} 章（当前第 ${save.meta.chapterUnlocked} 章）。`);
+    ui = { ...ui, tab: "town" };
+    return;
+  }
+
   const plannedFloor = clampPlannedFloor(ui.plannedFloor);
   const request = {
     dungeonId: dungeon.id,
@@ -2017,6 +2350,7 @@ function startRun(): void {
     gold: simulation.save.gold,
     materials: simulation.save.materials,
     fatePoints: simulation.save.fatePoints,
+    meta: cloneJson(simulation.save.meta),
     inventory: cloneJson(simulation.save.inventory),
     characters: cloneJson(simulation.save.characters),
     quests: cloneJson(simulation.save.quests)
@@ -2066,6 +2400,9 @@ function handleClick(event: MouseEvent): void {
     "apply-rules",
     "buy-item",
     "craft-calibrator",
+    "upgrade-infirmary",
+    "upgrade-workshop",
+    "unlock-next-chapter",
     "apply-diagnosis-preset",
     "apply-analytics-preset",
     "apply-failure-assist",
@@ -2111,6 +2448,12 @@ function handleClick(event: MouseEvent): void {
     buyItem(value);
   } else if (action === "craft-calibrator") {
     craftPhaseCalibrator();
+  } else if (action === "upgrade-infirmary") {
+    upgradeFacility("infirmary");
+  } else if (action === "upgrade-workshop") {
+    upgradeFacility("workshop");
+  } else if (action === "unlock-next-chapter") {
+    unlockNextChapter();
   } else if (action === "apply-diagnosis-preset") {
     if (value === "aggressive" || value === "balanced" || value === "cautious") {
       applyPreset(value);
@@ -2251,11 +2594,19 @@ function handleChange(event: Event): void {
 
   if (target.id === "dungeon-select" && target instanceof HTMLSelectElement) {
     const nextDungeon = DUNGEONS.find((dungeon) => dungeon.id === target.value) ?? DUNGEONS[0];
-    ui = {
-      ...ui,
-      selectedDungeonId: target.value,
-      plannedFloor: Math.min(ui.plannedFloor, nextDungeon.maxFloor)
-    };
+    if (!isDungeonUnlocked(nextDungeon.id)) {
+      ui = {
+        ...ui,
+        selectedDungeonId: firstUnlockedDungeonId()
+      };
+      setBanner(`该航线尚未解锁，需要第 ${requiredChapterForDungeon(nextDungeon.id)} 章。`);
+    } else {
+      ui = {
+        ...ui,
+        selectedDungeonId: target.value,
+        plannedFloor: Math.min(ui.plannedFloor, nextDungeon.maxFloor)
+      };
+    }
   }
 
   if (target.id === "planned-floor" && target instanceof HTMLInputElement) {

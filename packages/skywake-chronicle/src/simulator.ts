@@ -204,6 +204,7 @@ interface RecoverySummary {
 }
 
 function applyTownRecovery(save: SaveData, status: RunStatus): RecoverySummary {
+  const infirmaryLevel = Math.max(1, Math.min(3, Math.floor(save.meta.infirmaryLevel)));
   const stressRatioByStatus: Record<RunStatus, number> = {
     running: 0,
     completed: 0.42,
@@ -219,6 +220,8 @@ function applyTownRecovery(save: SaveData, status: RunStatus): RecoverySummary {
 
   const stressRatio = stressRatioByStatus[status];
   const resourceRatio = resourceRatioByStatus[status];
+  const bonusMultiplier = 1 + (infirmaryLevel - 1) * 0.2;
+  const flatBonus = (infirmaryLevel - 1) * 3;
   const summary: RecoverySummary = {
     stressRecovered: 0,
     mentalRecovered: 0,
@@ -232,15 +235,15 @@ function applyTownRecovery(save: SaveData, status: RunStatus): RecoverySummary {
     const resourceBefore = character.resource;
     const hadConsequence = character.consequenceLight.length > 0;
 
-    const stressGain = Math.max(6, Math.round(character.maxStress * stressRatio));
-    const mentalGain = Math.max(4, Math.round(character.maxStress * stressRatio * 0.7));
-    const resourceGain = Math.max(8, Math.round(character.maxResource * resourceRatio));
+    const stressGain = Math.max(6 + flatBonus, Math.round(character.maxStress * stressRatio * bonusMultiplier));
+    const mentalGain = Math.max(4 + flatBonus, Math.round(character.maxStress * stressRatio * 0.7 * bonusMultiplier));
+    const resourceGain = Math.max(8 + flatBonus, Math.round(character.maxResource * resourceRatio * bonusMultiplier));
 
     character.stressPhysical = clamp(character.stressPhysical + stressGain, 0, character.maxStress);
     character.stressMental = clamp(character.stressMental + mentalGain, 0, character.maxStress);
     character.resource = clamp(character.resource + resourceGain, 0, character.maxResource);
 
-    if (status === "completed" || status === "retreated") {
+    if (status === "completed" || status === "retreated" || (status === "failed" && infirmaryLevel >= 3)) {
       character.consequenceLight = "";
     }
 
@@ -1002,11 +1005,53 @@ export function simulateRun(save: SaveData, request: ExploreRequest): Simulation
 }
 
 function eventBrief(event: RunEvent): string {
+  const reasonLabel = (reason: unknown): string => {
+    if (reason === "missing_key_item") return "关键道具不足";
+    if (reason === "missing_required_aspect") return "环境应对不足";
+    if (reason === "retreat_hp_threshold") return "生存阈值触发撤退";
+    if (reason === "retreat_resource_threshold") return "资源阈值触发撤退";
+    if (reason === "time_window_missed") return "时段条件不匹配";
+    if (reason === "enemy_overwhelm") return "战斗压力过高";
+    if (reason === "path_blocked") return "路径阻断";
+    if (reason === "tactic_no_valid_action") return "战术动作无效";
+    return String(reason ?? "未知原因");
+  };
+  const runStatusLabel = (status: unknown): string => {
+    if (status === "running") return "进行中";
+    if (status === "completed") return "完成";
+    if (status === "retreated") return "撤退";
+    if (status === "failed") return "失败";
+    return String(status ?? "未知");
+  };
+  const actionLabel = (action: unknown): string => {
+    if (action === "attack_skill") return "技能攻击";
+    if (action === "defend_stance") return "防御架势";
+    if (action === "create_advantage") return "制造优势";
+    if (action === "overcome_obstacle") return "克服障碍";
+    if (action === "use_consumable") return "使用消耗品";
+    if (action === "save_resource_mode") return "资源回收";
+    if (action === "retreat_combat") return "战斗撤退";
+    if (action === "retreat_explore") return "探索撤退";
+    if (action === "use_key_item_slot") return "使用关键道具";
+    if (action === "basic_attack") return "普通攻击";
+    if (action === "wait") return "待机";
+    if (action === "swap_target") return "切换目标";
+    if (action === "mark_priority_target") return "标记重点目标";
+    if (action === "cleanse_ally") return "净化队友";
+    return String(action ?? "动作");
+  };
+
   switch (event.event_type) {
     case "run_start":
       return `出征开始，目标层数 ${String(event.payload.planned_floor ?? "?")}`;
+    case "floor_leave":
+      return `离开第 ${event.floor} 层`;
     case "floor_enter":
       return `进入第 ${event.floor} 层，场景 ${String(event.payload.scene_aspect ?? "未知")}`;
+    case "node_enter":
+      return `进入节点：${String(event.payload.node_type ?? "未知节点")}`;
+    case "node_exit":
+      return `离开节点：${String(event.payload.node_type ?? "未知节点")}`;
     case "gate_blocked":
       return `机关未响应，缺少 ${String(event.payload.missing_key ?? "关键道具")}`;
     case "overcome_check":
@@ -1014,23 +1059,34 @@ function eventBrief(event: RunEvent): string {
     case "combat_start":
       return `遭遇战开始（敌方威胁 ${String(event.payload.enemy_hp ?? "?")}）`;
     case "combat_action":
-      return `${String(event.payload.actor_name ?? "队员")} 执行 ${String(event.payload.action ?? "动作")}`;
+      return `${String(event.payload.actor_name ?? "队员")} 执行 ${actionLabel(event.payload.action)}`;
     case "combat_end":
       return event.outcome === "success" ? "战斗结束，敌方瓦解" : "队伍被压制，战斗失败";
     case "loot_drop":
       return `发现补给：${String(event.payload.item_id ?? "物资")}`;
     case "retreat_triggered":
-      return `触发撤退：${String(event.payload.reason ?? "未知原因")}`;
+      return `触发撤退：${reasonLabel(event.payload.reason)}`;
     case "quest_progress":
       return "任务进度更新";
     case "run_end":
-      return `出征结算：${String(event.payload.status ?? "unknown")}`;
+      return `出征结算：${runStatusLabel(event.payload.status)}`;
     default:
-      return `${event.event_type}`;
+      return "事件更新";
   }
 }
 
 export function toNarrative(event: RunEvent): string {
-  const markers = event.reason_tags.length > 0 ? ` [${event.reason_tags.join(",")}]` : "";
+  const reasonTags = event.reason_tags.map((tag) => {
+    if (tag === "missing_key_item") return "关键道具不足";
+    if (tag === "missing_required_aspect") return "环境应对不足";
+    if (tag === "retreat_hp_threshold") return "生存阈值触发撤退";
+    if (tag === "retreat_resource_threshold") return "资源阈值触发撤退";
+    if (tag === "time_window_missed") return "时段条件不匹配";
+    if (tag === "enemy_overwhelm") return "战斗压力过高";
+    if (tag === "path_blocked") return "路径阻断";
+    if (tag === "tactic_no_valid_action") return "战术动作无效";
+    return tag;
+  });
+  const markers = reasonTags.length > 0 ? ` [${reasonTags.join("，")}]` : "";
   return `#${event.seq} F${event.floor} ${eventBrief(event)}${markers}`;
 }
