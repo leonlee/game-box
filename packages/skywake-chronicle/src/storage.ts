@@ -4,6 +4,7 @@ import {
   ActiveRunPlan,
   ArchivedRunSummary,
   Action,
+  ExpeditionTimeScale,
   FallbackByRole,
   LogView,
   OnboardingProgress,
@@ -25,8 +26,11 @@ const DEFAULT_SETTINGS: SaveSettings = {
   defaultLogView: "narrative",
   notifyOnRunComplete: false,
   notifyFailOnly: false,
-  advancedDebugView: false
+  advancedDebugView: false,
+  expeditionTimeScale: 1
 };
+
+const TIME_SCALE_OPTIONS: readonly ExpeditionTimeScale[] = [1, 4, 10] as const;
 
 const DEFAULT_ONBOARDING: OnboardingProgress = {
   openedPartyTab: false,
@@ -52,6 +56,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isLogView(value: unknown): value is LogView {
   return value === "narrative" || value === "debug";
+}
+
+function isExpeditionTimeScale(value: unknown): value is ExpeditionTimeScale {
+  return typeof value === "number" && TIME_SCALE_OPTIONS.includes(value as ExpeditionTimeScale);
 }
 
 function shallowValidate(data: unknown): data is SaveData {
@@ -174,6 +182,11 @@ function normalizeSettings(raw: unknown): { settings: SaveSettings; changed: boo
   const advancedDebugView = typeof raw.advancedDebugView === "boolean" ? raw.advancedDebugView : DEFAULT_SETTINGS.advancedDebugView;
   if (typeof raw.advancedDebugView !== "boolean") changed = true;
 
+  const expeditionTimeScale = isExpeditionTimeScale(raw.expeditionTimeScale)
+    ? raw.expeditionTimeScale
+    : DEFAULT_SETTINGS.expeditionTimeScale;
+  if (!isExpeditionTimeScale(raw.expeditionTimeScale)) changed = true;
+
   if (!notifyOnRunComplete && notifyFailOnly) {
     changed = true;
   }
@@ -184,7 +197,8 @@ function normalizeSettings(raw: unknown): { settings: SaveSettings; changed: boo
       defaultLogView,
       notifyOnRunComplete,
       notifyFailOnly: notifyOnRunComplete ? notifyFailOnly : false,
-      advancedDebugView
+      advancedDebugView,
+      expeditionTimeScale
     },
     changed
   };

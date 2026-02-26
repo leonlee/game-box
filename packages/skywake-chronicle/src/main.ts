@@ -2,7 +2,17 @@ import { DUNGEONS, INVENTORY_CATALOG, createPresetProfile, getItemContentById } 
 import { estimateRunMinutes, simulateRun, toNarrative } from "./simulator";
 import { exportSaveString, importSaveString, loadSave, persistSave, wipeSave } from "./storage";
 import { getActiveProfile, validateTacticsConfig } from "./tactics";
-import { EventType, LogView, ReasonTag, RunEvent, SaveData, TacticsConfig, TacticsRule, UiState } from "./types";
+import {
+  EventType,
+  ExpeditionTimeScale,
+  LogView,
+  ReasonTag,
+  RunEvent,
+  SaveData,
+  TacticsConfig,
+  TacticsRule,
+  UiState
+} from "./types";
 
 const appEl = document.getElementById("app");
 if (!(appEl instanceof HTMLElement)) {
@@ -20,6 +30,7 @@ const REFORGE_RECIPE = {
   outputItem: "phase_calibrator",
   outputCount: 1
 } as const;
+const TIME_SCALE_OPTIONS: readonly ExpeditionTimeScale[] = [1, 4, 10] as const;
 
 type TacticStyle = "aggressive" | "balanced" | "cautious";
 
@@ -135,13 +146,23 @@ function formatCountdown(ms: number): string {
   return `${minutes}分${seconds}秒`;
 }
 
-function computePlannedDurationMs(minMinutes: number, maxMinutes: number, seed: number): number {
+function timeScaleLabel(scale: ExpeditionTimeScale): string {
+  return `${scale}x`;
+}
+
+function computePlannedDurationMs(
+  minMinutes: number,
+  maxMinutes: number,
+  seed: number,
+  timeScale: ExpeditionTimeScale
+): number {
   const min = Math.max(1, Math.floor(Math.min(minMinutes, maxMinutes)));
   const max = Math.max(min, Math.floor(Math.max(minMinutes, maxMinutes)));
   const span = max - min;
   const ratio = (Math.abs(seed) % 997) / 996;
   const minutes = min + Math.round(span * ratio);
-  return Math.max(60_000, minutes * 60_000);
+  const baseDurationMs = Math.max(60_000, minutes * 60_000);
+  return Math.max(10_000, Math.round(baseDurationMs / Math.max(1, timeScale)));
 }
 
 function getActiveRunSnapshot(now = Date.now()): ActiveRunSnapshot | null {
@@ -834,6 +855,8 @@ function renderCharacterCards(): string {
 function renderExpeditionTab(): string {
   const dungeon = getDungeon();
   const estimate = estimateRunMinutes(save, { dungeonId: dungeon.id, plannedFloor: ui.plannedFloor });
+  const scaledMinMinutes = Math.max(0.2, Number((estimate.minMinutes / save.settings.expeditionTimeScale).toFixed(1)));
+  const scaledMaxMinutes = Math.max(scaledMinMinutes, Number((estimate.maxMinutes / save.settings.expeditionTimeScale).toFixed(1)));
   const activeRunSnapshot = getActiveRunSnapshot();
   const runInProgress = activeRunSnapshot !== null;
   const run = getSelectedRun();
@@ -941,6 +964,10 @@ function renderExpeditionTab(): string {
           <div class="touch-item">
             <span>预计耗时</span>
             <strong>${estimate.minMinutes} ~ ${estimate.maxMinutes} 分钟</strong>
+          </div>
+          <div class="touch-item">
+            <span>时间倍率</span>
+            <strong>${timeScaleLabel(save.settings.expeditionTimeScale)}（折算 ${scaledMinMinutes} ~ ${scaledMaxMinutes} 分钟）</strong>
           </div>
           <div class="touch-item">
             <span>当前时段</span>
@@ -1377,6 +1404,10 @@ function renderSettingsTab(): string {
             <strong>${save.settings.advancedDebugView ? "开启（显示 rule_id）" : "关闭（隐藏 rule_id）"}</strong>
           </div>
           <div class="touch-item">
+            <span>探险时间倍率</span>
+            <strong>${timeScaleLabel(save.settings.expeditionTimeScale)}</strong>
+          </div>
+          <div class="touch-item">
             <span>通知权限</span>
             <strong>${permissionLabel}</strong>
           </div>
@@ -1388,6 +1419,10 @@ function renderSettingsTab(): string {
           <button data-action="toggle-notify-on-run">${save.settings.notifyOnRunComplete ? "关闭完成通知" : "开启完成通知"}</button>
           <button data-action="toggle-notify-fail-only" ${save.settings.notifyOnRunComplete ? "" : "disabled"}>${save.settings.notifyFailOnly ? "改为全部通知" : "仅失败通知"}</button>
           <button data-action="toggle-advanced-debug">${save.settings.advancedDebugView ? "关闭高级调试" : "开启高级调试"}</button>
+          ${TIME_SCALE_OPTIONS.map(
+            (scale) =>
+              `<button data-action="set-time-scale" data-value="${scale}" class="${save.settings.expeditionTimeScale === scale ? "on" : ""}">探险 ${timeScaleLabel(scale)}</button>`
+          ).join("")}
           <button data-action="request-notification-permission" ${canRequestNotification ? "" : "disabled"}>请求通知权限</button>
         </div>
       </article>
@@ -1594,6 +1629,26 @@ function toggleAdvancedDebug(): void {
   setBanner(save.settings.advancedDebugView ? "高级调试已开启：调试视图将显示 rule_id。" : "高级调试已关闭：调试视图将隐藏 rule_id。");
 }
 
+function setExpeditionTimeScale(scale: ExpeditionTimeScale): void {
+  if (save.activeRunPlan) {
+    setBanner("当前已有探险在进行中，返航后再调整时间倍率。");
+    return;
+  }
+
+  if (!TIME_SCALE_OPTIONS.includes(scale)) return;
+  if (save.settings.expeditionTimeScale === scale) {
+    setBanner(`探险时间倍率已是 ${timeScaleLabel(scale)}。`);
+    return;
+  }
+
+  save.settings = {
+    ...save.settings,
+    expeditionTimeScale: scale
+  };
+  persistSave(save);
+  setBanner(`探险时间倍率已切换为 ${timeScaleLabel(scale)}。`);
+}
+
 function exportSaveBackup(): void {
   const blob = new Blob([exportSaveString(save)], { type: "application/json;charset=utf-8" });
   const url = URL.createObjectURL(blob);
@@ -1705,7 +1760,12 @@ function startRun(): void {
   const estimate = estimateRunMinutes(save, request);
   const simulationSave = deepCloneSave(save);
   const simulation = simulateRun(simulationSave, request);
-  const durationMs = computePlannedDurationMs(estimate.minMinutes, estimate.maxMinutes, simulation.run.seed);
+  const durationMs = computePlannedDurationMs(
+    estimate.minMinutes,
+    estimate.maxMinutes,
+    simulation.run.seed,
+    save.settings.expeditionTimeScale
+  );
   const startedAt = Date.now();
   const finishAt = startedAt + durationMs;
   const timedRun = retimeRunForDuration(simulation.run, startedAt, finishAt);
@@ -1737,7 +1797,7 @@ function startRun(): void {
     logReasonFilter: "all"
   };
 
-  setBanner(`出征已开始：预计 ${formatCountdown(durationMs)} 后返航。`);
+  setBanner(`出征已开始（${timeScaleLabel(save.settings.expeditionTimeScale)}）：预计 ${formatCountdown(durationMs)} 后返航。`);
 }
 
 function handleClick(event: MouseEvent): void {
@@ -1856,6 +1916,11 @@ function handleClick(event: MouseEvent): void {
     toggleNotifyFailOnly();
   } else if (action === "toggle-advanced-debug") {
     toggleAdvancedDebug();
+  } else if (action === "set-time-scale") {
+    const scale = Number(value);
+    if (scale === 1 || scale === 4 || scale === 10) {
+      setExpeditionTimeScale(scale);
+    }
   } else if (action === "request-notification-permission") {
     void requestNotificationPermission();
   } else if (action === "replay-prev") {

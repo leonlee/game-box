@@ -1,5 +1,6 @@
 export type TabId = "expedition" | "party" | "town" | "storage" | "settings";
 export type LogView = "narrative" | "debug";
+export type ExpeditionTimeScale = 1 | 4 | 10;
 
 export type Role = "tank" | "dps" | "support";
 export type CharacterClass = "vanguard" | "ranger" | "mystic";
@@ -240,6 +241,7 @@ export interface SaveSettings {
   notifyOnRunComplete: boolean;
   notifyFailOnly: boolean;
   advancedDebugView: boolean;
+  expeditionTimeScale: ExpeditionTimeScale;
 }
 
 export interface OnboardingProgress {

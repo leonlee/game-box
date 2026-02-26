@@ -709,7 +709,8 @@ export function createDefaultSave(): SaveData {
       defaultLogView: "narrative",
       notifyOnRunComplete: false,
       notifyFailOnly: false,
-      advancedDebugView: false
+      advancedDebugView: false,
+      expeditionTimeScale: 1
     },
     onboarding: {
       openedPartyTab: false,
