@@ -218,6 +218,7 @@ export interface SaveData {
   hintClaims: Record<string, number>;
   settings: SaveSettings;
   onboarding: OnboardingProgress;
+  archivedRunSummary: ArchivedRunSummary;
   inventory: Record<string, number>;
   characters: CharacterState[];
   tacticsProfiles: TacticsProfile[];
@@ -238,6 +239,17 @@ export interface OnboardingProgress {
   appliedPreset: boolean;
   startedRun: boolean;
   viewedDebugLog: boolean;
+}
+
+export interface ArchivedRunSummary {
+  archivedRuns: number;
+  completed: number;
+  retreated: number;
+  failed: number;
+  reasonTagCounts: Record<string, number>;
+  progressRateSum: number;
+  retainedGoldSum: number;
+  retainedMaterialsSum: number;
 }
 
 export interface ExploreRequest {

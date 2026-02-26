@@ -337,6 +337,23 @@ function eventLocKey(eventType: string, outcome: "success" | "partial" | "failed
   return `log.${eventType}.${outcome}`;
 }
 
+function archiveRunSummary(save: SaveData, run: SaveData["runs"][number]): void {
+  const progressRate = Math.min(1, run.reachedFloor / Math.max(1, run.plannedFloor));
+  const archived = save.archivedRunSummary;
+  archived.archivedRuns += 1;
+  archived.progressRateSum += progressRate;
+  archived.retainedGoldSum += run.retainedGold;
+  archived.retainedMaterialsSum += run.retainedMaterials;
+
+  if (run.status === "completed") archived.completed += 1;
+  else if (run.status === "retreated") archived.retreated += 1;
+  else if (run.status === "failed") archived.failed += 1;
+
+  run.reasonTags.forEach((tag) => {
+    archived.reasonTagCounts[tag] = (archived.reasonTagCounts[tag] ?? 0) + 1;
+  });
+}
+
 export function simulateRun(save: SaveData, request: ExploreRequest): SimulationResult {
   const dungeon = getDungeonById(request.dungeonId);
   const dungeonContent = getDungeonContentById(request.dungeonId);
@@ -910,7 +927,10 @@ export function simulateRun(save: SaveData, request: ExploreRequest): Simulation
   };
 
   save.runs.unshift(summary);
-  save.runs = save.runs.slice(0, 30);
+  if (save.runs.length > 30) {
+    const archivedRuns = save.runs.splice(30);
+    archivedRuns.forEach((run) => archiveRunSummary(save, run));
+  }
   save.updatedAt = getNow();
 
   return {

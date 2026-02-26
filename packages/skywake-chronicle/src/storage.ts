@@ -1,6 +1,7 @@
 import { APP_MAJOR_VERSION, SAVE_VERSION, STORAGE_KEY, createDefaultSave } from "./content";
 import { ACTIONS, createTacticsConfig, validateTacticsConfig } from "./tactics";
 import {
+  ArchivedRunSummary,
   Action,
   FallbackByRole,
   LogView,
@@ -31,6 +32,17 @@ const DEFAULT_ONBOARDING: OnboardingProgress = {
   appliedPreset: false,
   startedRun: false,
   viewedDebugLog: false
+};
+
+const DEFAULT_ARCHIVED_RUN_SUMMARY: ArchivedRunSummary = {
+  archivedRuns: 0,
+  completed: 0,
+  retreated: 0,
+  failed: 0,
+  reasonTagCounts: {},
+  progressRateSum: 0,
+  retainedGoldSum: 0,
+  retainedMaterialsSum: 0
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -206,6 +218,74 @@ function normalizeOnboarding(raw: unknown): { onboarding: OnboardingProgress; ch
   };
 }
 
+function normalizeArchivedRunSummary(raw: unknown): { archivedRunSummary: ArchivedRunSummary; changed: boolean } {
+  if (!isRecord(raw)) {
+    return { archivedRunSummary: DEFAULT_ARCHIVED_RUN_SUMMARY, changed: true };
+  }
+
+  let changed = false;
+  const archivedRuns = typeof raw.archivedRuns === "number" && Number.isFinite(raw.archivedRuns) && raw.archivedRuns >= 0
+    ? Math.floor(raw.archivedRuns)
+    : DEFAULT_ARCHIVED_RUN_SUMMARY.archivedRuns;
+  if (archivedRuns !== raw.archivedRuns) changed = true;
+
+  const completed = typeof raw.completed === "number" && Number.isFinite(raw.completed) && raw.completed >= 0
+    ? Math.floor(raw.completed)
+    : DEFAULT_ARCHIVED_RUN_SUMMARY.completed;
+  if (completed !== raw.completed) changed = true;
+
+  const retreated = typeof raw.retreated === "number" && Number.isFinite(raw.retreated) && raw.retreated >= 0
+    ? Math.floor(raw.retreated)
+    : DEFAULT_ARCHIVED_RUN_SUMMARY.retreated;
+  if (retreated !== raw.retreated) changed = true;
+
+  const failed = typeof raw.failed === "number" && Number.isFinite(raw.failed) && raw.failed >= 0
+    ? Math.floor(raw.failed)
+    : DEFAULT_ARCHIVED_RUN_SUMMARY.failed;
+  if (failed !== raw.failed) changed = true;
+
+  const reasonTagCounts = isRecord(raw.reasonTagCounts)
+    ? Object.entries(raw.reasonTagCounts).reduce<Record<string, number>>((acc, [key, value]) => {
+        if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+          acc[key] = Math.floor(value);
+        } else {
+          changed = true;
+        }
+        return acc;
+      }, {})
+    : {};
+  if (!isRecord(raw.reasonTagCounts)) changed = true;
+
+  const progressRateSum = typeof raw.progressRateSum === "number" && Number.isFinite(raw.progressRateSum) && raw.progressRateSum >= 0
+    ? raw.progressRateSum
+    : DEFAULT_ARCHIVED_RUN_SUMMARY.progressRateSum;
+  if (progressRateSum !== raw.progressRateSum) changed = true;
+
+  const retainedGoldSum = typeof raw.retainedGoldSum === "number" && Number.isFinite(raw.retainedGoldSum) && raw.retainedGoldSum >= 0
+    ? raw.retainedGoldSum
+    : DEFAULT_ARCHIVED_RUN_SUMMARY.retainedGoldSum;
+  if (retainedGoldSum !== raw.retainedGoldSum) changed = true;
+
+  const retainedMaterialsSum = typeof raw.retainedMaterialsSum === "number" && Number.isFinite(raw.retainedMaterialsSum) && raw.retainedMaterialsSum >= 0
+    ? raw.retainedMaterialsSum
+    : DEFAULT_ARCHIVED_RUN_SUMMARY.retainedMaterialsSum;
+  if (retainedMaterialsSum !== raw.retainedMaterialsSum) changed = true;
+
+  return {
+    archivedRunSummary: {
+      archivedRuns,
+      completed,
+      retreated,
+      failed,
+      reasonTagCounts,
+      progressRateSum,
+      retainedGoldSum,
+      retainedMaterialsSum
+    },
+    changed
+  };
+}
+
 function migrateSave(raw: SaveData): { save: SaveData; changed: boolean } {
   const normalizedHintClaims = isRecord(raw.hintClaims)
     ? Object.entries(raw.hintClaims).reduce<Record<string, number>>((acc, [key, value]) => {
@@ -218,12 +298,15 @@ function migrateSave(raw: SaveData): { save: SaveData; changed: boolean } {
 
   const { settings: normalizedSettings, changed: settingsChanged } = normalizeSettings(raw.settings);
   const { onboarding: normalizedOnboarding, changed: onboardingChanged } = normalizeOnboarding(raw.onboarding);
+  const { archivedRunSummary: normalizedArchivedRunSummary, changed: archivedRunSummaryChanged } =
+    normalizeArchivedRunSummary(raw.archivedRunSummary);
 
   const migrated: SaveData = {
     ...raw,
     hintClaims: normalizedHintClaims,
     settings: normalizedSettings,
     onboarding: normalizedOnboarding,
+    archivedRunSummary: normalizedArchivedRunSummary,
     tacticsProfiles: raw.tacticsProfiles,
     runs: Array.isArray(raw.runs) ? raw.runs : []
   };
@@ -242,7 +325,10 @@ function migrateSave(raw: SaveData): { save: SaveData; changed: boolean } {
   }
 
   const hintClaimsWasMissing = !isRecord(raw.hintClaims);
-  return { save: migrated, changed: changed || hintClaimsWasMissing || settingsChanged || onboardingChanged };
+  return {
+    save: migrated,
+    changed: changed || hintClaimsWasMissing || settingsChanged || onboardingChanged || archivedRunSummaryChanged
+  };
 }
 
 export function loadSave(): SaveData {

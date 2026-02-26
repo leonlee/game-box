@@ -717,6 +717,16 @@ export function createDefaultSave(): SaveData {
       startedRun: false,
       viewedDebugLog: false
     },
+    archivedRunSummary: {
+      archivedRuns: 0,
+      completed: 0,
+      retreated: 0,
+      failed: 0,
+      reasonTagCounts: {},
+      progressRateSum: 0,
+      retainedGoldSum: 0,
+      retainedMaterialsSum: 0
+    },
     inventory: {
       potion_small: 3,
       phase_calibrator: 0,

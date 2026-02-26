@@ -62,6 +62,21 @@ interface RunAnalytics {
   recommendStyle: TacticStyle | null;
 }
 
+interface LifetimeRunStats {
+  totalRuns: number;
+  archivedRuns: number;
+  completed: number;
+  retreated: number;
+  failed: number;
+  completionRate: number;
+  retreatRate: number;
+  failRate: number;
+  avgProgressRate: number;
+  avgRetainedGold: number;
+  avgRetainedMaterials: number;
+  topReasons: Array<{ tag: string; count: number }>;
+}
+
 interface ReplayMoment {
   seq: number;
   floor: number;
@@ -408,6 +423,67 @@ function buildRunAnalytics(dungeonId: string, limit = 20): RunAnalytics | null {
     topReasons,
     primaryReason,
     recommendStyle
+  };
+}
+
+function buildLifetimeRunStats(): LifetimeRunStats | null {
+  const liveRuns = save.runs;
+  const archived = save.archivedRunSummary;
+  const totalRuns = liveRuns.length + archived.archivedRuns;
+  if (totalRuns <= 0) return null;
+
+  let liveCompleted = 0;
+  let liveRetreated = 0;
+  let liveFailed = 0;
+  let liveProgressRateSum = 0;
+  let liveRetainedGoldSum = 0;
+  let liveRetainedMaterialsSum = 0;
+  const reasonCounts = new Map<string, number>();
+
+  liveRuns.forEach((run) => {
+    if (run.status === "completed") liveCompleted += 1;
+    else if (run.status === "retreated") liveRetreated += 1;
+    else if (run.status === "failed") liveFailed += 1;
+
+    liveProgressRateSum += Math.min(1, run.reachedFloor / Math.max(1, run.plannedFloor));
+    liveRetainedGoldSum += run.retainedGold;
+    liveRetainedMaterialsSum += run.retainedMaterials;
+    run.reasonTags.forEach((tag) => reasonCounts.set(tag, (reasonCounts.get(tag) ?? 0) + 1));
+  });
+
+  Object.entries(archived.reasonTagCounts).forEach(([tag, count]) => {
+    if (!Number.isFinite(count) || count <= 0) return;
+    reasonCounts.set(tag, (reasonCounts.get(tag) ?? 0) + count);
+  });
+
+  const completed = liveCompleted + archived.completed;
+  const retreated = liveRetreated + archived.retreated;
+  const failed = liveFailed + archived.failed;
+  const progressRateSum = liveProgressRateSum + archived.progressRateSum;
+  const retainedGoldSum = liveRetainedGoldSum + archived.retainedGoldSum;
+  const retainedMaterialsSum = liveRetainedMaterialsSum + archived.retainedMaterialsSum;
+
+  const topReasons = [...reasonCounts.entries()]
+    .sort((a, b) => {
+      if (b[1] !== a[1]) return b[1] - a[1];
+      return a[0].localeCompare(b[0]);
+    })
+    .slice(0, 3)
+    .map(([tag, count]) => ({ tag, count }));
+
+  return {
+    totalRuns,
+    archivedRuns: archived.archivedRuns,
+    completed,
+    retreated,
+    failed,
+    completionRate: completed / totalRuns,
+    retreatRate: retreated / totalRuns,
+    failRate: failed / totalRuns,
+    avgProgressRate: progressRateSum / totalRuns,
+    avgRetainedGold: retainedGoldSum / totalRuns,
+    avgRetainedMaterials: retainedMaterialsSum / totalRuns,
+    topReasons
   };
 }
 
@@ -1028,6 +1104,7 @@ function renderTownTab(): string {
 }
 
 function renderStorageTab(): string {
+  const lifetime = buildLifetimeRunStats();
   const inventory = Object.entries(INVENTORY_CATALOG)
     .map(([id, item]) => {
       const count = save.inventory[id] ?? 0;
@@ -1056,6 +1133,32 @@ function renderStorageTab(): string {
         <h3>仓库</h3>
         <ul class="touch-list compact">${inventory}</ul>
       </article>
+
+      ${
+        lifetime
+          ? `<article class="panel">
+              <h3>历史累计</h3>
+              <div class="touch-list compact">
+                <div class="touch-item"><span>总出征</span><strong>${lifetime.totalRuns}（归档 ${lifetime.archivedRuns}）</strong></div>
+                <div class="touch-item"><span>完成 / 撤退 / 失败</span><strong>${percentText(lifetime.completionRate)} / ${percentText(lifetime.retreatRate)} / ${percentText(lifetime.failRate)}</strong></div>
+                <div class="touch-item"><span>平均推进</span><strong>${percentText(lifetime.avgProgressRate)}</strong></div>
+                <div class="touch-item"><span>平均结算</span><strong>+${Math.round(lifetime.avgRetainedGold)}G / +${Math.round(lifetime.avgRetainedMaterials)}M</strong></div>
+              </div>
+              <div class="touch-list compact">
+                ${
+                  lifetime.topReasons.length > 0
+                    ? lifetime.topReasons
+                        .map(
+                          (item) =>
+                            `<div class="touch-item"><span>${escapeHtml(reasonText(item.tag as ReasonTag))}</span><strong>${item.count} 次</strong></div>`
+                        )
+                        .join("")
+                    : `<div class="touch-item"><p class="hint">暂无历史原因统计。</p></div>`
+                }
+              </div>
+            </article>`
+          : ""
+      }
 
       <article class="panel">
         <h3>出征档案（最近 30 次）</h3>
