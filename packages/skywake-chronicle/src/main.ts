@@ -115,6 +115,13 @@ interface ActiveRunSnapshot {
   } | null;
 }
 
+interface RecoverySummary {
+  stressRecovered: number;
+  mentalRecovered: number;
+  resourceRecovered: number;
+  consequencesCleared: number;
+}
+
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
@@ -270,6 +277,19 @@ function escapeHtml(value: string): string {
     .replace(/'/g, "&#39;");
 }
 
+function asRecoverySummary(raw: unknown): RecoverySummary | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const record = raw as Record<string, unknown>;
+  const stressRecovered = typeof record.stressRecovered === "number" ? Math.max(0, Math.floor(record.stressRecovered)) : 0;
+  const mentalRecovered = typeof record.mentalRecovered === "number" ? Math.max(0, Math.floor(record.mentalRecovered)) : 0;
+  const resourceRecovered = typeof record.resourceRecovered === "number" ? Math.max(0, Math.floor(record.resourceRecovered)) : 0;
+  const consequencesCleared =
+    typeof record.consequencesCleared === "number" ? Math.max(0, Math.floor(record.consequencesCleared)) : 0;
+
+  if (stressRecovered <= 0 && mentalRecovered <= 0 && resourceRecovered <= 0 && consequencesCleared <= 0) return null;
+  return { stressRecovered, mentalRecovered, resourceRecovered, consequencesCleared };
+}
+
 function currentWindowLabel(): "白昼" | "夜幕" {
   const hour = new Date().getHours();
   return hour >= 6 && hour < 18 ? "白昼" : "夜幕";
@@ -337,9 +357,20 @@ function summaryLine(event: RunEvent): string {
     return `机关处理 · ${event.outcome}`;
   }
   if (event.event_type === "run_end") {
-    return `出征${String(event.payload.status ?? "unknown")} · +${String(event.payload.retained_gold ?? 0)}G +${String(event.payload.retained_materials ?? 0)}M`;
+    const recovery = asRecoverySummary(event.payload.recovery);
+    const recoveryText = recovery
+      ? ` · 恢复 体力+${recovery.stressRecovered} 心智+${recovery.mentalRecovered} 资源+${recovery.resourceRecovered}`
+      : "";
+    return `出征${String(event.payload.status ?? "unknown")} · +${String(event.payload.retained_gold ?? 0)}G +${String(event.payload.retained_materials ?? 0)}M${recoveryText}`;
   }
   return toNarrative(event);
+}
+
+function getRunRecovery(run: SaveData["runs"][number] | null): RecoverySummary | null {
+  if (!run) return null;
+  const endEvent = [...run.events].reverse().find((event) => event.event_type === "run_end");
+  if (!endEvent) return null;
+  return asRecoverySummary(endEvent.payload.recovery);
 }
 
 function styleLabel(style: TacticStyle): string {
@@ -899,6 +930,7 @@ function renderExpeditionTab(): string {
   const activeRunSnapshot = getActiveRunSnapshot();
   const runInProgress = activeRunSnapshot !== null;
   const run = getSelectedRun();
+  const runRecovery = getRunRecovery(run);
   const assist = getFailureAssistForDungeon(dungeon.id);
   const diagnosis = getRunDiagnosis(run, run?.dungeonId ?? dungeon.id);
   const replayMoments = buildReplayMoments(run);
@@ -1063,6 +1095,11 @@ function renderExpeditionTab(): string {
                 }</strong></div>
                 <div class="touch-item"><span>层数</span><strong>${run.reachedFloor} / ${run.plannedFloor}</strong></div>
                 <div class="touch-item"><span>结算</span><strong>+${run.retainedGold} 金币 / +${run.retainedMaterials} 材料</strong></div>
+                ${
+                  runRecovery
+                    ? `<div class="touch-item"><span>返航恢复</span><strong>体力 +${runRecovery.stressRecovered} / 心智 +${runRecovery.mentalRecovered} / 资源 +${runRecovery.resourceRecovered}${runRecovery.consequencesCleared > 0 ? ` / 清除后果 ${runRecovery.consequencesCleared}` : ""}</strong></div>`
+                    : ""
+                }
                 <div class="touch-item"><span>失败原因</span><strong>${escapeHtml(summarizeReasonCounts(run.reasonTags))}</strong></div>
               </div>`
             : `<p class="hint">暂无出征记录，先派遣一次小队。</p>`
