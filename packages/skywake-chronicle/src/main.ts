@@ -31,6 +31,20 @@ interface FailureAssist {
   reason: string;
 }
 
+interface DiagnosisAction {
+  key: string;
+  action: "apply-diagnosis-preset" | "buy-item" | "craft-calibrator";
+  label: string;
+  value?: string;
+}
+
+interface RunDiagnosis {
+  primaryReason: ReasonTag;
+  reasons: ReasonTag[];
+  notes: string[];
+  actions: DiagnosisAction[];
+}
+
 function pickDefaultRunId(): string {
   return save.runs[0]?.runId ?? "";
 }
@@ -173,6 +187,102 @@ function getFailureAssistForDungeon(dungeonId: string): FailureAssist | null {
   };
 }
 
+function pushDiagnosisAction(actions: DiagnosisAction[], action: DiagnosisAction): void {
+  if (actions.some((item) => item.key === action.key)) return;
+  actions.push(action);
+}
+
+function getRunDiagnosis(run: SaveData["runs"][number] | null, dungeonId: string): RunDiagnosis | null {
+  if (!run) return null;
+  if (run.status === "completed") return null;
+  if (run.reasonTags.length === 0) return null;
+
+  const dungeon = DUNGEONS.find((item) => item.id === dungeonId) ?? DUNGEONS[0];
+  const primaryReason = resolvePrimaryReason(run.reasonTags);
+  const reasons: ReasonTag[] = [primaryReason];
+  const seenReasons = new Set<ReasonTag>([primaryReason]);
+  run.reasonTags.forEach((tag) => {
+    if (seenReasons.has(tag)) return;
+    seenReasons.add(tag);
+    reasons.push(tag);
+  });
+  const notes: string[] = [];
+  const actions: DiagnosisAction[] = [];
+
+  reasons.forEach((reason) => {
+    if (reason === "missing_key_item") {
+      const calibratorCount = save.inventory[REFORGE_RECIPE.outputItem] ?? 0;
+      const outputName = INVENTORY_CATALOG[REFORGE_RECIPE.outputItem]?.name ?? REFORGE_RECIPE.outputItem;
+      notes.push(`关键道具不足。当前 ${outputName} 库存：x${calibratorCount}。`);
+      pushDiagnosisAction(actions, {
+        key: "buy-phase-calibrator",
+        action: "buy-item",
+        value: REFORGE_RECIPE.outputItem,
+        label: `购买 ${outputName}`
+      });
+      pushDiagnosisAction(actions, {
+        key: "craft-phase-calibrator",
+        action: "craft-calibrator",
+        label: "工坊重铸校准器"
+      });
+    }
+
+    if (reason === "enemy_overwhelm" || reason === "retreat_hp_threshold") {
+      notes.push("战斗压力偏高，先降低冒进频率，优先保证生存。");
+      pushDiagnosisAction(actions, {
+        key: "preset-cautious",
+        action: "apply-diagnosis-preset",
+        value: "cautious",
+        label: "套用谨慎模板"
+      });
+      pushDiagnosisAction(actions, {
+        key: "buy-potion-small",
+        action: "buy-item",
+        value: "potion_small",
+        label: "补充应急药剂"
+      });
+    }
+
+    if (reason === "retreat_resource_threshold" || reason === "tactic_no_valid_action") {
+      notes.push("资源阈值或规则冲突触发撤退，先回到均衡模板稳定循环。");
+      pushDiagnosisAction(actions, {
+        key: "preset-balanced",
+        action: "apply-diagnosis-preset",
+        value: "balanced",
+        label: "套用均衡模板"
+      });
+      pushDiagnosisAction(actions, {
+        key: "buy-remedy-kit",
+        action: "buy-item",
+        value: "remedy_kit",
+        label: "补充净化包"
+      });
+    }
+
+    if (reason === "time_window_missed") {
+      const favoredWindow = dungeon.favoredTimeWindow === "day" ? "白昼" : "夜幕";
+      notes.push(`时段条件不匹配。该迷宫偏好 ${favoredWindow}，建议对应时段再出征。`);
+    }
+
+    if (reason === "missing_required_aspect" || reason === "path_blocked") {
+      notes.push("环境处理不足，建议降低目标层并确保 Overcome/Use Item 规则可触发。");
+      pushDiagnosisAction(actions, {
+        key: "preset-balanced-env",
+        action: "apply-diagnosis-preset",
+        value: "balanced",
+        label: "切换到均衡模板（机关优先）"
+      });
+    }
+  });
+
+  return {
+    primaryReason,
+    reasons,
+    notes: Array.from(new Set(notes)),
+    actions
+  };
+}
+
 function renderCharacterCards(): string {
   return save.characters
     .map((character) => {
@@ -206,6 +316,7 @@ function renderExpeditionTab(): string {
   const estimate = estimateRunMinutes(save, { dungeonId: dungeon.id, plannedFloor: ui.plannedFloor });
   const run = getSelectedRun();
   const assist = getFailureAssistForDungeon(dungeon.id);
+  const diagnosis = getRunDiagnosis(run, run?.dungeonId ?? dungeon.id);
   const allReasons = run ? Array.from(new Set(run.events.flatMap((event) => event.reason_tags))).sort() : [];
 
   const filteredEvents = run
@@ -313,6 +424,34 @@ function renderExpeditionTab(): string {
                 <div class="touch-item"><span>推荐模板</span><strong>${styleLabel(assist.style)}</strong></div>
               </div>
               <button data-action="apply-failure-assist" data-value="${assist.style}" data-quest-id="${assist.questId}" class="primary">一键应用建议</button>
+            </article>`
+          : ""
+      }
+
+      ${
+        diagnosis
+          ? `<article class="panel">
+              <h3>复盘建议</h3>
+              <div class="touch-list compact">
+                <div class="touch-item"><span>主因</span><strong>${escapeHtml(reasonText(diagnosis.primaryReason))}</strong></div>
+                <div class="touch-item"><span>标签</span><strong>${escapeHtml(diagnosis.reasons.map(reasonText).join(" / "))}</strong></div>
+              </div>
+              <ul class="touch-list compact">
+                ${diagnosis.notes.map((note) => `<li class="touch-item"><p>${escapeHtml(note)}</p></li>`).join("")}
+              </ul>
+              ${
+                diagnosis.actions.length > 0
+                  ? `<div class="inline-buttons wrap">
+                      ${diagnosis.actions
+                        .map((action) =>
+                          action.action === "craft-calibrator"
+                            ? `<button data-action="${action.action}">${escapeHtml(action.label)}</button>`
+                            : `<button data-action="${action.action}" data-value="${action.value ?? ""}">${escapeHtml(action.label)}</button>`
+                        )
+                        .join("")}
+                    </div>`
+                  : ""
+              }
             </article>`
           : ""
       }
@@ -748,6 +887,11 @@ function handleClick(event: MouseEvent): void {
     buyItem(value);
   } else if (action === "craft-calibrator") {
     craftPhaseCalibrator();
+  } else if (action === "apply-diagnosis-preset") {
+    if (value === "aggressive" || value === "balanced" || value === "cautious") {
+      applyPreset(value);
+      setBanner(`复盘建议已应用：当前模板为${styleLabel(value)}。`);
+    }
   } else if (action === "apply-failure-assist") {
     if ((value === "aggressive" || value === "balanced" || value === "cautious") && questId.length > 0) {
       applyFailureAssist(value, questId);
