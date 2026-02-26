@@ -6,6 +6,7 @@ export type CharacterClass = "vanguard" | "ranger" | "mystic";
 export type Trigger = "on_node_enter" | "on_turn_start" | "on_turn_end" | "on_combat_end";
 export type RuleScope = "party" | "character";
 export type Operator = "==" | "!=" | "<" | "<=" | ">" | ">=" | "contains" | "in";
+export type ConflictPolicy = "mixed_party_preempt_character_merge";
 
 export type Fact =
   | "self_stress_pct"
@@ -109,12 +110,24 @@ export interface TacticsRule {
   enabled: boolean;
 }
 
+export interface FallbackByRole {
+  tank: Action;
+  dps: Action;
+  support: Action;
+}
+
+export interface TacticsConfig {
+  version: 1;
+  conflict_policy: ConflictPolicy;
+  fallback_by_role: FallbackByRole;
+  rules: TacticsRule[];
+}
+
 export interface TacticsProfile {
   id: string;
   name: string;
   style: "aggressive" | "balanced" | "cautious" | "custom";
-  fallbackByRole: Record<Role, Action>;
-  rules: TacticsRule[];
+  config: TacticsConfig;
   updatedAt: number;
 }
 

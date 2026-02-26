@@ -2,16 +2,21 @@ import {
   Action,
   ConditionExpr,
   ConditionLeaf,
+  ConflictPolicy,
   Fact,
+  FallbackByRole,
   Operator,
   Role,
   RuleScope,
+  TacticsConfig,
   TacticsProfile,
   TacticsRule,
   Trigger
 } from "./types";
 
 export const RULE_ID_PATTERN = /^[a-z][a-z0-9_]{2,63}$/;
+export const CONFLICT_POLICIES: readonly ConflictPolicy[] = ["mixed_party_preempt_character_merge"];
+export const DEFAULT_CONFLICT_POLICY: ConflictPolicy = "mixed_party_preempt_character_merge";
 
 export const ACTIONS: Action[] = [
   "attack_skill",
@@ -45,6 +50,12 @@ export const ACTIONS_BY_SCOPE: Record<RuleScope, readonly Action[]> = {
     "mark_priority_target",
     "cleanse_ally"
   ]
+};
+
+export const FALLBACK_ACTIONS_BY_ROLE: Readonly<Record<Role, readonly Action[]>> = {
+  tank: ["defend_stance", "wait"],
+  dps: ["basic_attack", "attack_skill", "wait"],
+  support: ["create_advantage", "wait", "defend_stance"]
 };
 
 export const FACTS: Fact[] = [
@@ -171,7 +182,7 @@ export function evaluateCondition(
   return !evaluateCondition(expr.not, facts);
 }
 
-function sortRules(rules: TacticsRule[]): TacticsRule[] {
+function sortRules(rules: readonly TacticsRule[]): TacticsRule[] {
   return [...rules].sort((a, b) => b.priority - a.priority || a.id.localeCompare(b.id));
 }
 
@@ -182,7 +193,7 @@ export function selectPartyRule(
   cooldowns: Record<string, number>
 ): TacticsRule | null {
   const candidates = sortRules(
-    profile.rules.filter((rule) => rule.scope === "party" && rule.trigger === trigger && rule.enabled)
+    profile.config.rules.filter((rule) => rule.scope === "party" && rule.trigger === trigger && rule.enabled)
   );
 
   for (const rule of candidates) {
@@ -202,7 +213,7 @@ export function selectCharacterRule(
   cooldowns: Record<string, number>
 ): TacticsRule | null {
   const candidates = sortRules(
-    profile.rules.filter((rule) => rule.scope === "character" && rule.trigger === trigger && rule.enabled)
+    profile.config.rules.filter((rule) => rule.scope === "character" && rule.trigger === trigger && rule.enabled)
   );
 
   for (const rule of candidates) {
@@ -216,7 +227,7 @@ export function selectCharacterRule(
 }
 
 export function fallbackActionForRole(profile: TacticsProfile, role: Role): Action {
-  return profile.fallbackByRole[role];
+  return profile.config.fallback_by_role[role];
 }
 
 function valueMatchesKind(value: unknown, kind: ValueKind): boolean {
@@ -294,10 +305,39 @@ function walkLeaves(expr: ConditionExpr, visitor: (leaf: ConditionLeaf) => void)
   walkLeaves(expr.not, visitor);
 }
 
-export function validateRules(rules: unknown): string[] {
+function isFallbackByRole(value: unknown): value is FallbackByRole {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.tank === "string" &&
+    typeof value.dps === "string" &&
+    typeof value.support === "string"
+  );
+}
+
+function validateFallbackByRole(value: unknown): string[] {
+  const errors: string[] = [];
+  if (!isFallbackByRole(value)) {
+    return ["fallback_by_role 缺失或格式错误"];
+  }
+
+  (Object.keys(FALLBACK_ACTIONS_BY_ROLE) as Role[]).forEach((role) => {
+    const action = value[role];
+    if (!ACTIONS.includes(action)) {
+      errors.push(`fallback_by_role.${role} 动作非法: ${action}`);
+      return;
+    }
+    if (!FALLBACK_ACTIONS_BY_ROLE[role].includes(action)) {
+      errors.push(`fallback_by_role.${role} 与角色不匹配: ${action}`);
+    }
+  });
+
+  return errors;
+}
+
+function validateRulesCore(rules: unknown, basePath = "rules"): string[] {
   const errors: string[] = [];
   if (!Array.isArray(rules)) {
-    return ["规则配置必须是数组"];
+    return [`${basePath} 必须是数组`];
   }
 
   if (rules.length > LIMITS.maxRulesPerConfig) {
@@ -307,7 +347,7 @@ export function validateRules(rules: unknown): string[] {
   const idSet = new Set<string>();
 
   rules.forEach((item, index) => {
-    const path = `rules[${index}]`;
+    const path = `${basePath}[${index}]`;
     if (!isRecord(item)) {
       errors.push(`${path} 不是对象`);
       return;
@@ -387,7 +427,53 @@ export function validateRules(rules: unknown): string[] {
     if (!allowedActions.includes(action)) {
       errors.push(`${path}.then.action 与 scope 不匹配`);
     }
+
+    if ("params" in rule.then && rule.then.params !== undefined && !isRecord(rule.then.params)) {
+      errors.push(`${path}.then.params 必须是对象`);
+    }
   });
+
+  return errors;
+}
+
+export function createTacticsConfig(
+  rules: TacticsRule[],
+  fallbackByRole: FallbackByRole,
+  policy: ConflictPolicy = DEFAULT_CONFLICT_POLICY
+): TacticsConfig {
+  return {
+    version: 1,
+    conflict_policy: policy,
+    fallback_by_role: fallbackByRole,
+    rules
+  };
+}
+
+export function validateRules(rules: unknown): string[] {
+  return validateRulesCore(rules, "rules");
+}
+
+export function validateTacticsConfig(config: unknown): string[] {
+  const errors: string[] = [];
+  if (!isRecord(config)) {
+    return ["战术配置必须是对象"];
+  }
+
+  if (config.version !== 1) {
+    errors.push("version 必须为 1");
+  }
+
+  if (typeof config.conflict_policy !== "string" || !CONFLICT_POLICIES.includes(config.conflict_policy as ConflictPolicy)) {
+    errors.push("conflict_policy 非法，当前仅支持 mixed_party_preempt_character_merge");
+  }
+
+  errors.push(...validateFallbackByRole(config.fallback_by_role));
+
+  if (!("rules" in config)) {
+    errors.push("rules 缺失");
+  } else {
+    errors.push(...validateRulesCore(config.rules, "rules"));
+  }
 
   return errors;
 }

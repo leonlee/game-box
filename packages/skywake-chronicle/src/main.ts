@@ -1,8 +1,8 @@
 import { DUNGEONS, INVENTORY_CATALOG, createPresetProfile } from "./content";
 import { estimateRunMinutes, simulateRun, toNarrative } from "./simulator";
 import { loadSave, persistSave, wipeSave } from "./storage";
-import { getActiveProfile, validateRules } from "./tactics";
-import { Action, EventType, ReasonTag, SaveData, TacticsRule, UiState } from "./types";
+import { getActiveProfile, validateTacticsConfig } from "./tactics";
+import { EventType, ReasonTag, SaveData, TacticsConfig, TacticsRule, UiState } from "./types";
 
 const appEl = document.getElementById("app");
 if (!(appEl instanceof HTMLElement)) {
@@ -18,7 +18,7 @@ function pickDefaultRunId(): string {
 
 function initialEditorText(): string {
   const profile = getActiveProfile(save.tacticsProfiles, save.activePartyTacticProfileId);
-  return JSON.stringify(profile.rules, null, 2);
+  return JSON.stringify(profile.config, null, 2);
 }
 
 let ui: UiState = {
@@ -288,8 +288,8 @@ function renderPartyTab(): string {
         <p class="hint">当前配置：${escapeHtml(profile.name)}（${profile.style}）</p>
 
         <div class="touch-list compact">
-          <div class="touch-item"><span>fallback</span><strong>tank=${profile.fallbackByRole.tank}, dps=${profile.fallbackByRole.dps}, support=${profile.fallbackByRole.support}</strong></div>
-          <div class="touch-item"><span>规则数量</span><strong>${profile.rules.length}</strong></div>
+          <div class="touch-item"><span>fallback</span><strong>tank=${profile.config.fallback_by_role.tank}, dps=${profile.config.fallback_by_role.dps}, support=${profile.config.fallback_by_role.support}</strong></div>
+          <div class="touch-item"><span>规则数量</span><strong>${profile.config.rules.length}</strong></div>
           <div class="touch-item"><span>更新时间</span><strong>${new Date(profile.updatedAt).toLocaleString()}</strong></div>
         </div>
       </article>
@@ -297,7 +297,7 @@ function renderPartyTab(): string {
 
     <section class="panel">
       <h3>硬核模式：手动规则编辑</h3>
-      <p class="hint">支持直接编辑 JSON 规则数组，应用前会做 DSL 校验（条件上限 12、动作上限 14、scope/action 匹配）。</p>
+      <p class="hint">支持编辑完整 TacticsConfig（version/conflict_policy/fallback_by_role/rules）。也兼容仅提交 rules 数组，应用前会做 DSL 校验。</p>
       <textarea id="rules-editor" rows="16">${escapeHtml(ui.editorText)}</textarea>
       <div class="inline-buttons">
         <button data-action="apply-rules" class="primary">应用规则</button>
@@ -448,7 +448,7 @@ function render(): void {
 
 function setEditorFromActiveProfile(): void {
   const profile = getActiveProfile(save.tacticsProfiles, save.activePartyTacticProfileId);
-  ui = { ...ui, editorText: JSON.stringify(profile.rules, null, 2), editorErrors: [] };
+  ui = { ...ui, editorText: JSON.stringify(profile.config, null, 2), editorErrors: [] };
 }
 
 function applyPreset(style: "aggressive" | "balanced" | "cautious"): void {
@@ -482,28 +482,46 @@ function buyItem(itemId: string): void {
   setBanner(`购买成功：${item.name} x1`);
 }
 
-function parseRulesInput(raw: string): TacticsRule[] {
+function parseConfigInput(raw: string, baseline: TacticsConfig): TacticsConfig {
   const parsed = JSON.parse(raw) as unknown;
-  if (Array.isArray(parsed)) return parsed as TacticsRule[];
-  if (parsed && typeof parsed === "object" && "rules" in parsed && Array.isArray((parsed as { rules: unknown }).rules)) {
-    return (parsed as { rules: TacticsRule[] }).rules;
+  if (Array.isArray(parsed)) {
+    return {
+      ...baseline,
+      rules: parsed as TacticsRule[]
+    };
   }
-  throw new Error("规则输入必须是数组，或包含 rules 数组的对象");
+
+  if (parsed && typeof parsed === "object") {
+    const maybeConfig = parsed as Record<string, unknown>;
+    if ("rules" in maybeConfig && Array.isArray(maybeConfig.rules)) {
+      const hasRootConfigShape =
+        "version" in maybeConfig && "conflict_policy" in maybeConfig && "fallback_by_role" in maybeConfig;
+      if (!hasRootConfigShape) {
+        return {
+          ...baseline,
+          rules: maybeConfig.rules as TacticsRule[]
+        };
+      }
+      return maybeConfig as unknown as TacticsConfig;
+    }
+  }
+
+  throw new Error("规则输入必须是 TacticsConfig 对象，或 rules 数组");
 }
 
 function applyRulesEditor(): void {
   const profile = getActiveProfile(save.tacticsProfiles, save.activePartyTacticProfileId);
 
   try {
-    const rules = parseRulesInput(ui.editorText);
-    const errors = validateRules(rules);
+    const config = parseConfigInput(ui.editorText, profile.config);
+    const errors = validateTacticsConfig(config);
     if (errors.length > 0) {
       ui = { ...ui, editorErrors: errors };
       setBanner("规则校验失败，请修复后再应用。");
       return;
     }
 
-    profile.rules = rules;
+    profile.config = config;
     profile.style = "custom";
     profile.name = "自定义";
     profile.updatedAt = Date.now();
