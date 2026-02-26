@@ -261,6 +261,7 @@ export interface UiState {
   plannedFloor: number;
   selectedRunId: string;
   replayIndex: number;
+  expandedLogSeq: number;
   logView: LogView;
   logTypeFilter: EventType | "all";
   logReasonFilter: ReasonTag | "all";

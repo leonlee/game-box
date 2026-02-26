@@ -280,6 +280,33 @@
       font-size: 0.88rem;
     }
 
+    .touch-item .chapter-label {
+      margin: 0;
+      font-size: 0.76rem;
+      color: #f4c98b;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .touch-item .summary-line {
+      margin: 0;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      color: #dbe5f2;
+    }
+
+    .touch-item.expanded .summary-line {
+      -webkit-line-clamp: unset;
+      overflow: visible;
+    }
+
+    .touch-item .detail-block {
+      border-top: 1px dashed rgba(106, 132, 163, 0.4);
+      padding-top: 6px;
+    }
+
     .touch-item .tags {
       font-size: 0.78rem;
       color: #f0ba82;

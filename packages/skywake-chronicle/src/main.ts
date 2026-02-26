@@ -2,7 +2,7 @@ import { DUNGEONS, INVENTORY_CATALOG, createPresetProfile, getItemContentById } 
 import { estimateRunMinutes, simulateRun, toNarrative } from "./simulator";
 import { exportSaveString, importSaveString, loadSave, persistSave, wipeSave } from "./storage";
 import { getActiveProfile, validateTacticsConfig } from "./tactics";
-import { EventType, LogView, ReasonTag, SaveData, TacticsConfig, TacticsRule, UiState } from "./types";
+import { EventType, LogView, ReasonTag, RunEvent, SaveData, TacticsConfig, TacticsRule, UiState } from "./types";
 
 const appEl = document.getElementById("app");
 if (!(appEl instanceof HTMLElement)) {
@@ -87,6 +87,7 @@ let ui: UiState = {
   plannedFloor: 4,
   selectedRunId: pickDefaultRunId(),
   replayIndex: 0,
+  expandedLogSeq: 0,
   logView: save.settings.defaultLogView,
   logTypeFilter: "all",
   logReasonFilter: "all",
@@ -152,6 +153,28 @@ function toDebugPayload(payload: Record<string, unknown>): Record<string, unknow
   const sanitized = { ...payload };
   delete sanitized.rule_id;
   return sanitized;
+}
+
+function chapterLabelForEvent(event: RunEvent): string {
+  if (event.event_type === "run_start") return "启程";
+  if (event.event_type === "retreat_triggered") return "撤退判定";
+  if (event.event_type === "run_end") return "结算";
+  if (event.event_type === "gate_blocked") return "机关阻断";
+  if (event.event_type === "combat_start" || event.event_type === "combat_end") return "战斗段";
+  return `第 ${event.floor} 层`;
+}
+
+function summaryLine(event: RunEvent): string {
+  if (event.event_type === "combat_action") {
+    return `${String(event.payload.actor_name ?? "队员")} · ${String(event.payload.action ?? "动作")} · ${event.outcome}`;
+  }
+  if (event.event_type === "overcome_check") {
+    return `机关处理 · ${event.outcome}`;
+  }
+  if (event.event_type === "run_end") {
+    return `出征${String(event.payload.status ?? "unknown")} · +${String(event.payload.retained_gold ?? 0)}G +${String(event.payload.retained_materials ?? 0)}M`;
+  }
+  return toNarrative(event);
 }
 
 function styleLabel(style: TacticStyle): string {
@@ -600,10 +623,32 @@ function renderExpeditionTab(): string {
       })
     : [];
 
+  const chapterBreakSeqs = new Set<number>();
+  if (ui.logView === "narrative") {
+    filteredEvents.forEach((event, index) => {
+      const prev = index > 0 ? filteredEvents[index - 1] : null;
+      const isBoundary =
+        !prev ||
+        prev.floor !== event.floor ||
+        event.event_type === "run_start" ||
+        event.event_type === "run_end" ||
+        event.event_type === "retreat_triggered" ||
+        event.event_type === "gate_blocked";
+      if (isBoundary) {
+        chapterBreakSeqs.add(event.seq);
+      }
+    });
+  }
+
   const logItems = filteredEvents
     .map((event) => {
+      const expanded = ui.expandedLogSeq === event.seq;
       const tagLine = event.reason_tags.length > 0 ? `<p class="tags">${event.reason_tags.join(", ")}</p>` : "";
-      const body =
+      const chapterHeader =
+        ui.logView === "narrative" && chapterBreakSeqs.has(event.seq)
+          ? `<p class="chapter-label">${escapeHtml(chapterLabelForEvent(event))}</p>`
+          : "";
+      const details =
         ui.logView === "narrative"
           ? `<p>${escapeHtml(toNarrative(event))}</p>`
           : `<pre>${escapeHtml(
@@ -620,15 +665,22 @@ function renderExpeditionTab(): string {
                 2
               )
             )}</pre>`;
+      const detailBlock = expanded ? `<div class="detail-block">${details}</div>` : "";
 
       return `
-      <li class="touch-item ${event.outcome}">
+      <li class="touch-item ${event.outcome} ${expanded ? "expanded" : ""}">
+        ${chapterHeader}
         <div class="row">
           <strong>#${event.seq}</strong>
           <span>${event.event_type}</span>
           <span>F${event.floor}</span>
         </div>
-        ${body}
+        <p class="summary-line">${escapeHtml(summaryLine(event))}</p>
+        <div class="row">
+          <span class="hint">${event.reason_tags.length > 0 ? `${event.reason_tags.length} tags` : "无标签"}</span>
+          <button data-action="toggle-log-expand" data-value="${event.seq}">${expanded ? "收起" : "展开"}</button>
+        </div>
+        ${detailBlock}
         ${tagLine}
       </li>`;
     })
@@ -1289,6 +1341,7 @@ function importSaveBackup(): void {
     ...ui,
     selectedRunId: pickDefaultRunId(),
     replayIndex: 0,
+    expandedLogSeq: 0,
     logView: save.settings.defaultLogView,
     logTypeFilter: "all",
     logReasonFilter: "all",
@@ -1371,6 +1424,7 @@ function startRun(): void {
     ...ui,
     selectedRunId: result.run.runId,
     replayIndex: 0,
+    expandedLogSeq: 0,
     tab: "expedition",
     logTypeFilter: "all",
     logReasonFilter: "all"
@@ -1399,7 +1453,7 @@ function handleClick(event: MouseEvent): void {
       markOnboardingStep("openedPartyTab");
     }
   } else if (action === "set-log-view") {
-    ui = { ...ui, logView: value === "debug" ? "debug" : "narrative" };
+    ui = { ...ui, logView: value === "debug" ? "debug" : "narrative", expandedLogSeq: 0 };
     if (value === "debug") {
       markOnboardingStep("viewedDebugLog");
     }
@@ -1436,6 +1490,7 @@ function handleClick(event: MouseEvent): void {
       tab: "expedition",
       selectedRunId: runWithReason?.runId ?? ui.selectedRunId,
       replayIndex: 0,
+      expandedLogSeq: 0,
       logReasonFilter: reason
     };
     setBanner(`已筛选日志原因：${reasonText(reason)}。`);
@@ -1444,7 +1499,7 @@ function handleClick(event: MouseEvent): void {
       applyFailureAssist(value, questId);
     }
   } else if (action === "view-run") {
-    ui = { ...ui, selectedRunId: value, replayIndex: 0, tab: "expedition" };
+    ui = { ...ui, selectedRunId: value, replayIndex: 0, expandedLogSeq: 0, tab: "expedition" };
   } else if (action === "guide-open-party") {
     ui = { ...ui, tab: "party" };
     markOnboardingStep("openedPartyTab");
@@ -1487,6 +1542,7 @@ function handleClick(event: MouseEvent): void {
           ...ui,
           replayIndex: nextIndex,
           tab: "expedition",
+          expandedLogSeq: step.seq,
           logTypeFilter: step.eventType,
           logReasonFilter: step.reasonTags[0] ?? "all"
         };
@@ -1499,10 +1555,16 @@ function handleClick(event: MouseEvent): void {
       ui = {
         ...ui,
         tab: "expedition",
+        expandedLogSeq: step.seq,
         logTypeFilter: step.eventType,
         logReasonFilter: step.reasonTags[0] ?? "all"
       };
       setBanner(`已按回放步骤过滤日志：#${step.seq} ${step.eventType}。`);
+    }
+  } else if (action === "toggle-log-expand") {
+    const seq = Number(value);
+    if (Number.isFinite(seq)) {
+      ui = { ...ui, expandedLogSeq: ui.expandedLogSeq === seq ? 0 : seq };
     }
   } else if (action === "export-save") {
     exportSaveBackup();
@@ -1518,6 +1580,7 @@ function handleClick(event: MouseEvent): void {
         ...ui,
         selectedRunId: "",
         replayIndex: 0,
+        expandedLogSeq: 0,
         logView: save.settings.defaultLogView,
         editorText: initialEditorText(),
         editorErrors: [],
@@ -1549,11 +1612,11 @@ function handleChange(event: Event): void {
   }
 
   if (target.id === "log-type-filter" && target instanceof HTMLSelectElement) {
-    ui = { ...ui, logTypeFilter: (target.value as EventType | "all") || "all" };
+    ui = { ...ui, logTypeFilter: (target.value as EventType | "all") || "all", expandedLogSeq: 0 };
   }
 
   if (target.id === "log-reason-filter" && target instanceof HTMLSelectElement) {
-    ui = { ...ui, logReasonFilter: (target.value as ReasonTag | "all") || "all" };
+    ui = { ...ui, logReasonFilter: (target.value as ReasonTag | "all") || "all", expandedLogSeq: 0 };
   }
 
   render();
