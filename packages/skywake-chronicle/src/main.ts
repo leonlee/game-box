@@ -62,6 +62,16 @@ interface RunAnalytics {
   recommendStyle: TacticStyle | null;
 }
 
+interface ReplayMoment {
+  seq: number;
+  floor: number;
+  eventType: EventType;
+  outcome: "success" | "partial" | "failed";
+  reasonTags: ReasonTag[];
+  summary: string;
+  ruleId: string | null;
+}
+
 function pickDefaultRunId(): string {
   return save.runs[0]?.runId ?? "";
 }
@@ -76,6 +86,7 @@ let ui: UiState = {
   selectedDungeonId: DUNGEONS[0].id,
   plannedFloor: 4,
   selectedRunId: pickDefaultRunId(),
+  replayIndex: 0,
   logView: save.settings.defaultLogView,
   logTypeFilter: "all",
   logReasonFilter: "all",
@@ -132,6 +143,15 @@ function summarizeReasonCounts(tags: ReasonTag[]): string {
 
 function percentText(rate: number): string {
   return `${Math.round(rate * 100)}%`;
+}
+
+function toDebugPayload(payload: Record<string, unknown>): Record<string, unknown> {
+  if (save.settings.advancedDebugView) return payload;
+  if (!("rule_id" in payload)) return payload;
+
+  const sanitized = { ...payload };
+  delete sanitized.rule_id;
+  return sanitized;
 }
 
 function styleLabel(style: TacticStyle): string {
@@ -368,6 +388,55 @@ function buildRunAnalytics(dungeonId: string, limit = 20): RunAnalytics | null {
   };
 }
 
+function buildReplayMoments(run: SaveData["runs"][number] | null): ReplayMoment[] {
+  if (!run) return [];
+  if (run.events.length === 0) return [];
+
+  const markers = new Set<EventType>([
+    "run_start",
+    "combat_start",
+    "combat_end",
+    "gate_blocked",
+    "retreat_triggered",
+    "quest_progress",
+    "run_end"
+  ]);
+
+  const moments: ReplayMoment[] = [];
+  run.events.forEach((event) => {
+    const shouldInclude =
+      markers.has(event.event_type) ||
+      event.outcome === "failed" ||
+      (event.outcome === "partial" && event.event_type !== "combat_action");
+    if (!shouldInclude) return;
+
+    moments.push({
+      seq: event.seq,
+      floor: event.floor,
+      eventType: event.event_type,
+      outcome: event.outcome,
+      reasonTags: event.reason_tags,
+      summary: toNarrative(event),
+      ruleId: typeof event.payload.rule_id === "string" ? event.payload.rule_id : null
+    });
+  });
+
+  if (moments.length === 0) return [];
+
+  const deduped = moments.filter((item, index, arr) => {
+    if (index === 0) return true;
+    return item.seq !== arr[index - 1].seq;
+  });
+
+  if (deduped.length <= 12) return deduped;
+  return [...deduped.slice(0, 11), deduped[deduped.length - 1]];
+}
+
+function clampReplayIndex(index: number, size: number): number {
+  if (size <= 0) return 0;
+  return Math.max(0, Math.min(size - 1, index));
+}
+
 function isOnboardingComplete(): boolean {
   return (
     save.onboarding.openedPartyTab &&
@@ -517,6 +586,9 @@ function renderExpeditionTab(): string {
   const run = getSelectedRun();
   const assist = getFailureAssistForDungeon(dungeon.id);
   const diagnosis = getRunDiagnosis(run, run?.dungeonId ?? dungeon.id);
+  const replayMoments = buildReplayMoments(run);
+  const replayIndex = clampReplayIndex(ui.replayIndex, replayMoments.length);
+  const activeReplay = replayMoments[replayIndex] ?? null;
   const analytics = buildRunAnalytics(dungeon.id);
   const allReasons = run ? Array.from(new Set(run.events.flatMap((event) => event.reason_tags))).sort() : [];
 
@@ -542,7 +614,7 @@ function renderExpeditionTab(): string {
                   floor: event.floor,
                   outcome: event.outcome,
                   reason_tags: event.reason_tags,
-                  payload: event.payload
+                  payload: toDebugPayload(event.payload)
                 },
                 null,
                 2
@@ -653,6 +725,45 @@ function renderExpeditionTab(): string {
                         )
                         .join("")}
                     </div>`
+                  : ""
+              }
+            </article>`
+          : ""
+      }
+
+      ${
+        replayMoments.length > 0
+          ? `<article class="panel">
+              <div class="toolbar">
+                <h3>关键回合回放</h3>
+                <span class="chip">${replayIndex + 1}/${replayMoments.length}</span>
+              </div>
+              <div class="inline-buttons">
+                <button data-action="replay-prev" ${replayIndex <= 0 ? "disabled" : ""}>上一步</button>
+                <button data-action="replay-next" ${replayIndex >= replayMoments.length - 1 ? "disabled" : ""}>下一步</button>
+                <button data-action="replay-focus-active" ${activeReplay ? "" : "disabled"}>定位日志</button>
+              </div>
+              <ul class="touch-list compact">
+                ${replayMoments
+                  .map(
+                    (item, index) => `<li class="touch-item ${index === replayIndex ? "active" : ""}">
+                        <div class="row">
+                          <strong>#${item.seq}</strong>
+                          <span>${item.eventType}</span>
+                          <span>F${item.floor}</span>
+                        </div>
+                        <p>${escapeHtml(item.summary)}</p>
+                        <div class="row">
+                          <span>${item.reasonTags.length > 0 ? escapeHtml(item.reasonTags.map(reasonText).join(" / ")) : "无原因标签"}</span>
+                          <button data-action="replay-select" data-value="${index}">跳转</button>
+                        </div>
+                      </li>`
+                  )
+                  .join("")}
+              </ul>
+              ${
+                save.settings.advancedDebugView && activeReplay?.ruleId
+                  ? `<p class="hint">当前步骤 rule_id：${escapeHtml(activeReplay.ruleId)}</p>`
                   : ""
               }
             </article>`
@@ -930,6 +1041,10 @@ function renderSettingsTab(): string {
             <strong>${save.settings.notifyFailOnly ? "开启" : "关闭"}</strong>
           </div>
           <div class="touch-item">
+            <span>高级调试</span>
+            <strong>${save.settings.advancedDebugView ? "开启（显示 rule_id）" : "关闭（隐藏 rule_id）"}</strong>
+          </div>
+          <div class="touch-item">
             <span>通知权限</span>
             <strong>${permissionLabel}</strong>
           </div>
@@ -940,6 +1055,7 @@ function renderSettingsTab(): string {
           <button data-action="toggle-onboarding-card">${save.settings.showOnboardingCard ? "隐藏引导卡" : "显示引导卡"}</button>
           <button data-action="toggle-notify-on-run">${save.settings.notifyOnRunComplete ? "关闭完成通知" : "开启完成通知"}</button>
           <button data-action="toggle-notify-fail-only" ${save.settings.notifyOnRunComplete ? "" : "disabled"}>${save.settings.notifyFailOnly ? "改为全部通知" : "仅失败通知"}</button>
+          <button data-action="toggle-advanced-debug">${save.settings.advancedDebugView ? "关闭高级调试" : "开启高级调试"}</button>
           <button data-action="request-notification-permission" ${canRequestNotification ? "" : "disabled"}>请求通知权限</button>
         </div>
       </article>
@@ -1137,6 +1253,15 @@ function toggleNotifyFailOnly(): void {
   setBanner(save.settings.notifyFailOnly ? "已切换为仅失败通知。" : "已切换为全部结果通知。");
 }
 
+function toggleAdvancedDebug(): void {
+  save.settings = {
+    ...save.settings,
+    advancedDebugView: !save.settings.advancedDebugView
+  };
+  persistSave(save);
+  setBanner(save.settings.advancedDebugView ? "高级调试已开启：调试视图将显示 rule_id。" : "高级调试已关闭：调试视图将隐藏 rule_id。");
+}
+
 function exportSaveBackup(): void {
   const blob = new Blob([exportSaveString(save)], { type: "application/json;charset=utf-8" });
   const url = URL.createObjectURL(blob);
@@ -1163,6 +1288,7 @@ function importSaveBackup(): void {
   ui = {
     ...ui,
     selectedRunId: pickDefaultRunId(),
+    replayIndex: 0,
     logView: save.settings.defaultLogView,
     logTypeFilter: "all",
     logReasonFilter: "all",
@@ -1244,6 +1370,7 @@ function startRun(): void {
   ui = {
     ...ui,
     selectedRunId: result.run.runId,
+    replayIndex: 0,
     tab: "expedition",
     logTypeFilter: "all",
     logReasonFilter: "all"
@@ -1262,6 +1389,9 @@ function handleClick(event: MouseEvent): void {
   const action = button.dataset.action;
   const value = button.dataset.value ?? "";
   const questId = button.dataset.questId ?? "";
+  const selectedRun = getSelectedRun();
+  const replayMoments = buildReplayMoments(selectedRun);
+  const replayIndex = clampReplayIndex(ui.replayIndex, replayMoments.length);
 
   if (action === "switch-tab") {
     ui = { ...ui, tab: value as UiState["tab"] };
@@ -1305,6 +1435,7 @@ function handleClick(event: MouseEvent): void {
       ...ui,
       tab: "expedition",
       selectedRunId: runWithReason?.runId ?? ui.selectedRunId,
+      replayIndex: 0,
       logReasonFilter: reason
     };
     setBanner(`已筛选日志原因：${reasonText(reason)}。`);
@@ -1313,7 +1444,7 @@ function handleClick(event: MouseEvent): void {
       applyFailureAssist(value, questId);
     }
   } else if (action === "view-run") {
-    ui = { ...ui, selectedRunId: value, tab: "expedition" };
+    ui = { ...ui, selectedRunId: value, replayIndex: 0, tab: "expedition" };
   } else if (action === "guide-open-party") {
     ui = { ...ui, tab: "party" };
     markOnboardingStep("openedPartyTab");
@@ -1338,8 +1469,41 @@ function handleClick(event: MouseEvent): void {
     toggleRunNotification();
   } else if (action === "toggle-notify-fail-only") {
     toggleNotifyFailOnly();
+  } else if (action === "toggle-advanced-debug") {
+    toggleAdvancedDebug();
   } else if (action === "request-notification-permission") {
     void requestNotificationPermission();
+  } else if (action === "replay-prev") {
+    ui = { ...ui, replayIndex: clampReplayIndex(replayIndex - 1, replayMoments.length) };
+  } else if (action === "replay-next") {
+    ui = { ...ui, replayIndex: clampReplayIndex(replayIndex + 1, replayMoments.length) };
+  } else if (action === "replay-select") {
+    const targetIndex = Number(value);
+    if (Number.isFinite(targetIndex)) {
+      const nextIndex = clampReplayIndex(targetIndex, replayMoments.length);
+      const step = replayMoments[nextIndex];
+      if (step) {
+        ui = {
+          ...ui,
+          replayIndex: nextIndex,
+          tab: "expedition",
+          logTypeFilter: step.eventType,
+          logReasonFilter: step.reasonTags[0] ?? "all"
+        };
+        setBanner(`回放已定位到 #${step.seq}。`);
+      }
+    }
+  } else if (action === "replay-focus-active") {
+    const step = replayMoments[replayIndex];
+    if (step) {
+      ui = {
+        ...ui,
+        tab: "expedition",
+        logTypeFilter: step.eventType,
+        logReasonFilter: step.reasonTags[0] ?? "all"
+      };
+      setBanner(`已按回放步骤过滤日志：#${step.seq} ${step.eventType}。`);
+    }
   } else if (action === "export-save") {
     exportSaveBackup();
   } else if (action === "import-save") {
@@ -1353,6 +1517,7 @@ function handleClick(event: MouseEvent): void {
       ui = {
         ...ui,
         selectedRunId: "",
+        replayIndex: 0,
         logView: save.settings.defaultLogView,
         editorText: initialEditorText(),
         editorErrors: [],

@@ -708,7 +708,8 @@ export function createDefaultSave(): SaveData {
       showOnboardingCard: true,
       defaultLogView: "narrative",
       notifyOnRunComplete: false,
-      notifyFailOnly: false
+      notifyFailOnly: false,
+      advancedDebugView: false
     },
     onboarding: {
       openedPartyTab: false,

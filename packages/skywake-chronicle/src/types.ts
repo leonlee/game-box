@@ -230,6 +230,7 @@ export interface SaveSettings {
   defaultLogView: LogView;
   notifyOnRunComplete: boolean;
   notifyFailOnly: boolean;
+  advancedDebugView: boolean;
 }
 
 export interface OnboardingProgress {
@@ -259,6 +260,7 @@ export interface UiState {
   selectedDungeonId: string;
   plannedFloor: number;
   selectedRunId: string;
+  replayIndex: number;
   logView: LogView;
   logTypeFilter: EventType | "all";
   logReasonFilter: ReasonTag | "all";

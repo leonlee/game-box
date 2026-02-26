@@ -22,7 +22,8 @@ const DEFAULT_SETTINGS: SaveSettings = {
   showOnboardingCard: true,
   defaultLogView: "narrative",
   notifyOnRunComplete: false,
-  notifyFailOnly: false
+  notifyFailOnly: false,
+  advancedDebugView: false
 };
 
 const DEFAULT_ONBOARDING: OnboardingProgress = {
@@ -157,6 +158,9 @@ function normalizeSettings(raw: unknown): { settings: SaveSettings; changed: boo
   const notifyFailOnly = typeof raw.notifyFailOnly === "boolean" ? raw.notifyFailOnly : DEFAULT_SETTINGS.notifyFailOnly;
   if (typeof raw.notifyFailOnly !== "boolean") changed = true;
 
+  const advancedDebugView = typeof raw.advancedDebugView === "boolean" ? raw.advancedDebugView : DEFAULT_SETTINGS.advancedDebugView;
+  if (typeof raw.advancedDebugView !== "boolean") changed = true;
+
   if (!notifyOnRunComplete && notifyFailOnly) {
     changed = true;
   }
@@ -166,7 +170,8 @@ function normalizeSettings(raw: unknown): { settings: SaveSettings; changed: boo
       showOnboardingCard,
       defaultLogView,
       notifyOnRunComplete,
-      notifyFailOnly: notifyOnRunComplete ? notifyFailOnly : false
+      notifyFailOnly: notifyOnRunComplete ? notifyFailOnly : false,
+      advancedDebugView
     },
     changed
   };
