@@ -214,6 +214,7 @@ export interface SaveData {
   fatePoints: number;
   runCounter: number;
   activePartyTacticProfileId: string;
+  hintClaims: Record<string, number>;
   inventory: Record<string, number>;
   characters: CharacterState[];
   tacticsProfiles: TacticsProfile[];

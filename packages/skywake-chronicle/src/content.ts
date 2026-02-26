@@ -703,6 +703,7 @@ export function createDefaultSave(): SaveData {
     fatePoints: 2,
     runCounter: 0,
     activePartyTacticProfileId: balanced.id,
+    hintClaims: {},
     inventory: {
       potion_small: 3,
       phase_calibrator: 0,

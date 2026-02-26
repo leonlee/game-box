@@ -21,6 +21,16 @@ const REFORGE_RECIPE = {
   outputCount: 1
 } as const;
 
+type TacticStyle = "aggressive" | "balanced" | "cautious";
+
+interface FailureAssist {
+  questId: string;
+  questTitle: string;
+  streak: number;
+  style: TacticStyle;
+  reason: string;
+}
+
 function pickDefaultRunId(): string {
   return save.runs[0]?.runId ?? "";
 }
@@ -87,6 +97,82 @@ function summarizeReasonCounts(tags: ReasonTag[]): string {
     .join(" / ");
 }
 
+function styleLabel(style: TacticStyle): string {
+  if (style === "aggressive") return "好斗";
+  if (style === "cautious") return "谨慎";
+  return "均衡";
+}
+
+function resolvePrimaryReason(runTags: readonly ReasonTag[]): ReasonTag {
+  if (runTags.length === 0) return "retreat_resource_threshold";
+  const counts = new Map<ReasonTag, number>();
+  runTags.forEach((tag) => counts.set(tag, (counts.get(tag) ?? 0) + 1));
+  return [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0];
+}
+
+function reasonText(reason: ReasonTag): string {
+  if (reason === "missing_key_item") return "关键道具不足";
+  if (reason === "missing_required_aspect") return "环境应对不足";
+  if (reason === "time_window_missed") return "时段条件不匹配";
+  if (reason === "enemy_overwhelm") return "战斗压力过高";
+  if (reason === "retreat_hp_threshold") return "生存阈值触发撤退";
+  if (reason === "retreat_resource_threshold") return "资源阈值触发撤退";
+  if (reason === "path_blocked") return "路径阻断";
+  if (reason === "tactic_no_valid_action") return "战术动作无效";
+  return reason;
+}
+
+function recommendStyleByReason(reason: ReasonTag): TacticStyle {
+  if (reason === "enemy_overwhelm" || reason === "retreat_hp_threshold") {
+    return "cautious";
+  }
+
+  if (reason === "retreat_resource_threshold" || reason === "tactic_no_valid_action") {
+    return "balanced";
+  }
+
+  return "balanced";
+}
+
+function getFailureAssistForDungeon(dungeonId: string): FailureAssist | null {
+  const quest = save.quests.find((item) => item.dungeonId === dungeonId && item.status === "active");
+  if (!quest) return null;
+
+  const claimedCount = save.hintClaims[quest.id] ?? 0;
+  if (claimedCount > 0) return null;
+
+  let streak = 0;
+  let latestFailedRun: SaveData["runs"][number] | null = null;
+
+  for (const run of save.runs) {
+    if (run.dungeonId !== quest.dungeonId) continue;
+
+    const questSolved = run.status === "completed" && run.reachedFloor >= quest.targetFloor;
+    if (questSolved) break;
+
+    const questFailed = run.status === "failed" || run.status === "retreated" || run.reachedFloor < quest.targetFloor;
+    if (!questFailed) break;
+
+    streak += 1;
+    if (!latestFailedRun) {
+      latestFailedRun = run;
+    }
+  }
+
+  if (streak < 3 || !latestFailedRun) return null;
+
+  const primaryReason = resolvePrimaryReason(latestFailedRun.reasonTags);
+  const style = recommendStyleByReason(primaryReason);
+
+  return {
+    questId: quest.id,
+    questTitle: quest.title,
+    streak,
+    style,
+    reason: reasonText(primaryReason)
+  };
+}
+
 function renderCharacterCards(): string {
   return save.characters
     .map((character) => {
@@ -119,6 +205,7 @@ function renderExpeditionTab(): string {
   const dungeon = getDungeon();
   const estimate = estimateRunMinutes(save, { dungeonId: dungeon.id, plannedFloor: ui.plannedFloor });
   const run = getSelectedRun();
+  const assist = getFailureAssistForDungeon(dungeon.id);
   const allReasons = run ? Array.from(new Set(run.events.flatMap((event) => event.reason_tags))).sort() : [];
 
   const filteredEvents = run
@@ -214,6 +301,21 @@ function renderExpeditionTab(): string {
             : `<p class="hint">暂无出征记录，先派遣一次小队。</p>`
         }
       </article>
+
+      ${
+        assist
+          ? `<article class="panel">
+              <h3>连续失败保护</h3>
+              <div class="touch-list compact">
+                <div class="touch-item"><span>任务</span><strong>${escapeHtml(assist.questTitle)}</strong></div>
+                <div class="touch-item"><span>连续失败</span><strong>${assist.streak} 次</strong></div>
+                <div class="touch-item"><span>主要问题</span><strong>${escapeHtml(assist.reason)}</strong></div>
+                <div class="touch-item"><span>推荐模板</span><strong>${styleLabel(assist.style)}</strong></div>
+              </div>
+              <button data-action="apply-failure-assist" data-value="${assist.style}" data-quest-id="${assist.questId}" class="primary">一键应用建议</button>
+            </article>`
+          : ""
+      }
     </section>
 
     <section class="panel">
@@ -532,6 +634,13 @@ function craftPhaseCalibrator(): void {
   setBanner(`重铸成功：${outputName} x${REFORGE_RECIPE.outputCount}`);
 }
 
+function applyFailureAssist(style: TacticStyle, questId: string): void {
+  applyPreset(style);
+  save.hintClaims[questId] = (save.hintClaims[questId] ?? 0) + 1;
+  persistSave(save);
+  setBanner(`连续失败保护已生效：已应用${styleLabel(style)}模板。`);
+}
+
 function parseConfigInput(raw: string, baseline: TacticsConfig): TacticsConfig {
   const parsed = JSON.parse(raw) as unknown;
   if (Array.isArray(parsed)) {
@@ -618,6 +727,7 @@ function handleClick(event: MouseEvent): void {
 
   const action = button.dataset.action;
   const value = button.dataset.value ?? "";
+  const questId = button.dataset.questId ?? "";
 
   if (action === "switch-tab") {
     ui = { ...ui, tab: value as UiState["tab"] };
@@ -638,6 +748,10 @@ function handleClick(event: MouseEvent): void {
     buyItem(value);
   } else if (action === "craft-calibrator") {
     craftPhaseCalibrator();
+  } else if (action === "apply-failure-assist") {
+    if ((value === "aggressive" || value === "balanced" || value === "cautious") && questId.length > 0) {
+      applyFailureAssist(value, questId);
+    }
   } else if (action === "view-run") {
     ui = { ...ui, selectedRunId: value, tab: "expedition" };
   } else if (action === "wipe-save") {

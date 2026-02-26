@@ -111,8 +111,18 @@ function migrateProfiles(rawProfiles: unknown[]): { profiles: TacticsProfile[]; 
 }
 
 function migrateSave(raw: SaveData): { save: SaveData; changed: boolean } {
+  const normalizedHintClaims = isRecord(raw.hintClaims)
+    ? Object.entries(raw.hintClaims).reduce<Record<string, number>>((acc, [key, value]) => {
+        if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+          acc[key] = Math.floor(value);
+        }
+        return acc;
+      }, {})
+    : {};
+
   const migrated: SaveData = {
     ...raw,
+    hintClaims: normalizedHintClaims,
     tacticsProfiles: raw.tacticsProfiles,
     runs: Array.isArray(raw.runs) ? raw.runs : []
   };
@@ -130,7 +140,8 @@ function migrateSave(raw: SaveData): { save: SaveData; changed: boolean } {
     return { save: migrated, changed: true };
   }
 
-  return { save: migrated, changed };
+  const hintClaimsWasMissing = !isRecord(raw.hintClaims);
+  return { save: migrated, changed: changed || hintClaimsWasMissing };
 }
 
 export function loadSave(): SaveData {
