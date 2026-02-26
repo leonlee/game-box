@@ -313,6 +313,8 @@ function normalizeActiveRunPlan(raw: unknown): { activeRunPlan: ActiveRunPlan | 
   const run = raw.run;
   const startedAt = raw.startedAt;
   const finishAt = raw.finishAt;
+  const pausedAtRaw = raw.pausedAt;
+  const pausedAccumMsRaw = raw.pausedAccumMs;
   const postRunSaveJson = raw.postRunSaveJson;
 
   if (
@@ -342,14 +344,25 @@ function normalizeActiveRunPlan(raw: unknown): { activeRunPlan: ActiveRunPlan | 
     return { activeRunPlan: null, changed: true };
   }
 
+  const pausedAtCandidate =
+    pausedAtRaw == null ? null : typeof pausedAtRaw === "number" && Number.isFinite(pausedAtRaw) ? pausedAtRaw : null;
+  const pausedAt = pausedAtCandidate != null && pausedAtCandidate < startedAt ? startedAt : pausedAtCandidate;
+  const pausedAccumMs =
+    typeof pausedAccumMsRaw === "number" && Number.isFinite(pausedAccumMsRaw) && pausedAccumMsRaw >= 0
+      ? Math.floor(pausedAccumMsRaw)
+      : 0;
+  const pauseChanged = pausedAt !== pausedAtRaw || pausedAccumMs !== pausedAccumMsRaw;
+
   return {
     activeRunPlan: {
       run: run as unknown as SaveData["runs"][number],
       startedAt,
       finishAt,
+      pausedAt,
+      pausedAccumMs,
       postRunSaveJson
     },
-    changed: false
+    changed: pauseChanged
   };
 }
 

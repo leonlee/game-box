@@ -207,6 +207,8 @@ export interface ActiveRunPlan {
   run: RunSummary;
   startedAt: number;
   finishAt: number;
+  pausedAt: number | null;
+  pausedAccumMs: number;
   postRunSaveJson: string;
 }
 

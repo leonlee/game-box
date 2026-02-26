@@ -3,6 +3,7 @@ import { estimateRunMinutes, simulateRun, toNarrative } from "./simulator";
 import { exportSaveString, importSaveString, loadSave, persistSave, wipeSave } from "./storage";
 import { getActiveProfile, validateTacticsConfig } from "./tactics";
 import {
+  ActiveRunPlan,
   EventType,
   ExpeditionTimeScale,
   LogView,
@@ -106,6 +107,12 @@ interface ActiveRunSnapshot {
   durationMs: number;
   startedAt: number;
   finishAt: number;
+  expectedFinishAt: number;
+  paused: boolean;
+  nextEvent: {
+    event: RunEvent;
+    etaMs: number;
+  } | null;
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -114,6 +121,22 @@ function clamp(value: number, min: number, max: number): number {
 
 function deepCloneSave(source: SaveData): SaveData {
   return JSON.parse(JSON.stringify(source)) as SaveData;
+}
+
+function planDurationMs(plan: ActiveRunPlan): number {
+  return Math.max(1000, plan.finishAt - plan.startedAt);
+}
+
+function planPauseCarryMs(plan: ActiveRunPlan, now = Date.now()): number {
+  const currentPause = plan.pausedAt == null ? 0 : Math.max(0, now - plan.pausedAt);
+  return Math.max(0, plan.pausedAccumMs) + currentPause;
+}
+
+function planElapsedMs(plan: ActiveRunPlan, now = Date.now()): number {
+  const durationMs = planDurationMs(plan);
+  const anchorNow = plan.pausedAt ?? now;
+  const elapsed = anchorNow - plan.startedAt - Math.max(0, plan.pausedAccumMs);
+  return clamp(elapsed, 0, durationMs);
 }
 
 function retimeRunForDuration(run: SaveData["runs"][number], startedAt: number, finishAt: number): SaveData["runs"][number] {
@@ -169,12 +192,14 @@ function getActiveRunSnapshot(now = Date.now()): ActiveRunSnapshot | null {
   const plan = save.activeRunPlan;
   if (!plan) return null;
 
-  const durationMs = Math.max(1000, plan.finishAt - plan.startedAt);
-  const elapsedMs = clamp(now - plan.startedAt, 0, durationMs);
+  const durationMs = planDurationMs(plan);
+  const elapsedMs = planElapsedMs(plan, now);
   const remainingMs = Math.max(0, durationMs - elapsedMs);
+  const expectedFinishAt = plan.finishAt + planPauseCarryMs(plan, now);
   const progressRate = clamp(elapsedMs / durationMs, 0, 1);
   const elapsedSec = Math.floor(elapsedMs / 1000);
   const visibleEvents = plan.run.events.filter((event) => event.time_offset_sec <= elapsedSec);
+  const nextEvent = plan.run.events.find((event) => event.time_offset_sec > elapsedSec) ?? null;
   const fallbackEvents = visibleEvents.length > 0 ? visibleEvents : plan.run.events.slice(0, 1);
   const reachedFloor = fallbackEvents.reduce((max, event) => Math.max(max, event.floor), 1);
   const reasonTags = Array.from(new Set(fallbackEvents.flatMap((event) => event.reason_tags)));
@@ -196,7 +221,16 @@ function getActiveRunSnapshot(now = Date.now()): ActiveRunSnapshot | null {
     remainingMs,
     durationMs,
     startedAt: plan.startedAt,
-    finishAt: plan.finishAt
+    finishAt: plan.finishAt,
+    expectedFinishAt,
+    paused: plan.pausedAt != null,
+    nextEvent:
+      nextEvent == null
+        ? null
+        : {
+            event: nextEvent,
+            etaMs: Math.max(0, nextEvent.time_offset_sec * 1000 - elapsedMs)
+          }
   };
 }
 
@@ -770,7 +804,12 @@ function notifyRunComplete(run: SaveData["runs"][number]): void {
 function finalizeActiveRunIfDue(force = false): boolean {
   const plan = save.activeRunPlan;
   if (!plan) return false;
-  if (!force && Date.now() < plan.finishAt) return false;
+  if (!force) {
+    if (plan.pausedAt != null) return false;
+    const durationMs = planDurationMs(plan);
+    const elapsedMs = planElapsedMs(plan);
+    if (elapsedMs < durationMs) return false;
+  }
 
   let postRunSave: SaveData | null = null;
   try {
@@ -990,16 +1029,23 @@ function renderExpeditionTab(): string {
               <h3>实时探险进度</h3>
               <div class="touch-list compact">
                 <div class="touch-item"><span>Run ID</span><strong>${activeRunSnapshot.run.runId}</strong></div>
+                <div class="touch-item"><span>状态</span><strong>${activeRunSnapshot.paused ? "paused（已暂停）" : "running（进行中）"}</strong></div>
                 <div class="touch-item"><span>推进层数</span><strong>${activeRunSnapshot.run.reachedFloor} / ${activeRunSnapshot.run.plannedFloor}</strong></div>
                 <div class="touch-item"><span>进度</span><strong>${percentText(activeRunSnapshot.progressRate)}</strong></div>
                 <div class="touch-item"><span>剩余时间</span><strong>${formatCountdown(activeRunSnapshot.remainingMs)}</strong></div>
-                <div class="touch-item"><span>预计返航</span><strong>${new Date(activeRunSnapshot.finishAt).toLocaleTimeString()}</strong></div>
+                <div class="touch-item"><span>预计返航</span><strong>${new Date(activeRunSnapshot.expectedFinishAt).toLocaleTimeString()}</strong></div>
+                <div class="touch-item"><span>下一关键事件</span><strong>${
+                  activeRunSnapshot.nextEvent
+                    ? `F${activeRunSnapshot.nextEvent.event.floor} · ${activeRunSnapshot.nextEvent.event.event_type}（${formatCountdown(activeRunSnapshot.nextEvent.etaMs)}）`
+                    : "无"
+                }</strong></div>
               </div>
               <div class="meter progress-meter"><i style="width:${Math.round(activeRunSnapshot.progressRate * 100)}%;"></i></div>
               <div class="inline-buttons">
+                <button data-action="${activeRunSnapshot.paused ? "resume-run" : "pause-run"}">${activeRunSnapshot.paused ? "恢复计时" : "暂停计时"}</button>
                 <button data-action="fast-forward-run">加速返航并结算</button>
               </div>
-              <p class="hint">日志会随时间推进逐步解锁，不再瞬间结算。</p>
+              <p class="hint">日志会随时间推进逐步解锁；暂停时进度与日志冻结。</p>
             </article>`
           : ""
       }
@@ -1010,7 +1056,11 @@ function renderExpeditionTab(): string {
           run
             ? `<div class="touch-list compact">
                 <div class="touch-item"><span>Run ID</span><strong>${run.runId}</strong></div>
-                <div class="touch-item"><span>状态</span><strong>${run.status}</strong></div>
+                <div class="touch-item"><span>状态</span><strong>${
+                  activeRunSnapshot && run.runId === activeRunSnapshot.run.runId && activeRunSnapshot.paused
+                    ? "paused（已暂停）"
+                    : run.status
+                }</strong></div>
                 <div class="touch-item"><span>层数</span><strong>${run.reachedFloor} / ${run.plannedFloor}</strong></div>
                 <div class="touch-item"><span>结算</span><strong>+${run.retainedGold} 金币 / +${run.retainedMaterials} 材料</strong></div>
                 <div class="touch-item"><span>失败原因</span><strong>${escapeHtml(summarizeReasonCounts(run.reasonTags))}</strong></div>
@@ -1321,14 +1371,15 @@ function renderStorageTab(): string {
     .map((run) => {
       const active = run.runId === ui.selectedRunId;
       const inProgress = run.status === "running";
+      const paused = inProgress && activeRunSnapshot?.run.runId === run.runId && activeRunSnapshot.paused;
       return `
       <li class="touch-item ${active ? "active" : ""}">
         <div class="row">
           <strong>${run.runId}</strong>
-          <span>${inProgress ? "running（进行中）" : run.status}</span>
+          <span>${paused ? "paused（已暂停）" : inProgress ? "running（进行中）" : run.status}</span>
         </div>
         <p>迷宫 ${run.dungeonId} · 层数 ${run.reachedFloor}/${run.plannedFloor} · +${run.retainedGold}G +${run.retainedMaterials}M</p>
-        ${inProgress && activeRunSnapshot ? `<p class="hint">预计剩余 ${formatCountdown(activeRunSnapshot.remainingMs)}</p>` : ""}
+        ${inProgress && activeRunSnapshot ? `<p class="hint">${paused ? "探险已暂停" : `预计剩余 ${formatCountdown(activeRunSnapshot.remainingMs)}`}</p>` : ""}
         <button data-action="view-run" data-value="${run.runId}">查看日志</button>
       </li>`;
     })
@@ -1652,6 +1703,46 @@ function setExpeditionTimeScale(scale: ExpeditionTimeScale): void {
   setBanner(`探险时间倍率已切换为 ${timeScaleLabel(scale)}。`);
 }
 
+function pauseActiveRun(): void {
+  const plan = save.activeRunPlan;
+  if (!plan) {
+    setBanner("当前没有进行中的探险。");
+    return;
+  }
+  if (plan.pausedAt != null) {
+    setBanner("探险已经处于暂停状态。");
+    return;
+  }
+
+  save.activeRunPlan = {
+    ...plan,
+    pausedAt: Date.now()
+  };
+  persistSave(save);
+  setBanner("探险已暂停，进度与日志已冻结。");
+}
+
+function resumeActiveRun(): void {
+  const plan = save.activeRunPlan;
+  if (!plan) {
+    setBanner("当前没有进行中的探险。");
+    return;
+  }
+  if (plan.pausedAt == null) {
+    setBanner("探险当前不是暂停状态。");
+    return;
+  }
+
+  const pauseDelta = Math.max(0, Date.now() - plan.pausedAt);
+  save.activeRunPlan = {
+    ...plan,
+    pausedAt: null,
+    pausedAccumMs: Math.max(0, plan.pausedAccumMs) + pauseDelta
+  };
+  persistSave(save);
+  setBanner("探险已恢复，计时继续推进。");
+}
+
 function fastForwardActiveRun(): void {
   if (!save.activeRunPlan) {
     setBanner("当前没有进行中的探险。");
@@ -1796,6 +1887,8 @@ function startRun(): void {
       run: timedRun,
       startedAt,
       finishAt,
+      pausedAt: null,
+      pausedAccumMs: 0,
       postRunSaveJson: JSON.stringify(postRunSave)
     }
   };
@@ -1931,6 +2024,10 @@ function handleClick(event: MouseEvent): void {
     toggleNotifyFailOnly();
   } else if (action === "toggle-advanced-debug") {
     toggleAdvancedDebug();
+  } else if (action === "pause-run") {
+    pauseActiveRun();
+  } else if (action === "resume-run") {
+    resumeActiveRun();
   } else if (action === "fast-forward-run") {
     fastForwardActiveRun();
   } else if (action === "set-time-scale") {
