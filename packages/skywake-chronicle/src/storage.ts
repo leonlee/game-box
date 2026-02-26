@@ -301,6 +301,166 @@ function normalizeArchivedRunSummary(raw: unknown): { archivedRunSummary: Archiv
   };
 }
 
+function normalizeInventory(raw: unknown): { inventory: Record<string, number> | null; changed: boolean } {
+  if (!isRecord(raw)) {
+    return { inventory: null, changed: true };
+  }
+
+  let changed = false;
+  const inventory = Object.entries(raw).reduce<Record<string, number>>((acc, [key, value]) => {
+    if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+      acc[key] = Math.floor(value);
+    } else {
+      changed = true;
+    }
+    return acc;
+  }, {});
+
+  return { inventory, changed };
+}
+
+function normalizeCharacters(raw: unknown): { characters: SaveData["characters"] | null; changed: boolean } {
+  if (!Array.isArray(raw)) {
+    return { characters: null, changed: true };
+  }
+
+  let changed = false;
+  const characters: SaveData["characters"] = [];
+  raw.forEach((item) => {
+    if (
+      !isRecord(item) ||
+      typeof item.uid !== "string" ||
+      typeof item.name !== "string" ||
+      (item.role !== "tank" && item.role !== "dps" && item.role !== "support") ||
+      (item.classId !== "vanguard" && item.classId !== "ranger" && item.classId !== "mystic") ||
+      typeof item.level !== "number" ||
+      typeof item.xp !== "number" ||
+      typeof item.stressPhysical !== "number" ||
+      typeof item.stressMental !== "number" ||
+      typeof item.maxStress !== "number" ||
+      typeof item.resource !== "number" ||
+      typeof item.maxResource !== "number" ||
+      typeof item.consequenceLight !== "string"
+    ) {
+      changed = true;
+      return;
+    }
+
+    characters.push({
+      uid: item.uid,
+      name: item.name,
+      role: item.role,
+      classId: item.classId,
+      level: Math.max(1, Math.floor(item.level)),
+      xp: Math.max(0, Math.floor(item.xp)),
+      stressPhysical: Math.max(0, Math.floor(item.stressPhysical)),
+      stressMental: Math.max(0, Math.floor(item.stressMental)),
+      maxStress: Math.max(1, Math.floor(item.maxStress)),
+      resource: Math.max(0, Math.floor(item.resource)),
+      maxResource: Math.max(1, Math.floor(item.maxResource)),
+      consequenceLight: item.consequenceLight
+    });
+  });
+
+  if (characters.length !== raw.length) {
+    changed = true;
+  }
+
+  return { characters: characters.length > 0 ? characters : null, changed };
+}
+
+function normalizeQuests(raw: unknown): { quests: SaveData["quests"] | null; changed: boolean } {
+  if (!Array.isArray(raw)) {
+    return { quests: null, changed: true };
+  }
+
+  let changed = false;
+  const quests: SaveData["quests"] = [];
+  raw.forEach((item) => {
+    if (
+      !isRecord(item) ||
+      typeof item.id !== "string" ||
+      typeof item.title !== "string" ||
+      typeof item.description !== "string" ||
+      typeof item.dungeonId !== "string" ||
+      typeof item.targetFloor !== "number" ||
+      (item.status !== "active" && item.status !== "completed") ||
+      typeof item.progressFloor !== "number" ||
+      typeof item.stableFloor !== "number"
+    ) {
+      changed = true;
+      return;
+    }
+
+    quests.push({
+      id: item.id,
+      title: item.title,
+      description: item.description,
+      dungeonId: item.dungeonId,
+      targetFloor: Math.max(1, Math.floor(item.targetFloor)),
+      status: item.status,
+      progressFloor: Math.max(0, Math.floor(item.progressFloor)),
+      stableFloor: Math.max(0, Math.floor(item.stableFloor))
+    });
+  });
+
+  if (quests.length !== raw.length) {
+    changed = true;
+  }
+
+  return { quests: quests.length > 0 ? quests : null, changed };
+}
+
+function normalizePostRunDelta(raw: unknown): { postRunDelta: ActiveRunPlan["postRunDelta"] | null; changed: boolean } {
+  if (!isRecord(raw)) {
+    return { postRunDelta: null, changed: true };
+  }
+
+  const runCounter = typeof raw.runCounter === "number" && Number.isFinite(raw.runCounter) && raw.runCounter >= 0
+    ? Math.floor(raw.runCounter)
+    : null;
+  const gold = typeof raw.gold === "number" && Number.isFinite(raw.gold) && raw.gold >= 0 ? Math.floor(raw.gold) : null;
+  const materials = typeof raw.materials === "number" && Number.isFinite(raw.materials) && raw.materials >= 0
+    ? Math.floor(raw.materials)
+    : null;
+  const fatePoints = typeof raw.fatePoints === "number" && Number.isFinite(raw.fatePoints) && raw.fatePoints >= 0
+    ? Math.floor(raw.fatePoints)
+    : null;
+  const { inventory, changed: inventoryChanged } = normalizeInventory(raw.inventory);
+  const { characters, changed: charactersChanged } = normalizeCharacters(raw.characters);
+  const { quests, changed: questsChanged } = normalizeQuests(raw.quests);
+
+  if (runCounter == null || gold == null || materials == null || fatePoints == null || !inventory || !characters || !quests) {
+    return { postRunDelta: null, changed: true };
+  }
+
+  return {
+    postRunDelta: {
+      runCounter,
+      gold,
+      materials,
+      fatePoints,
+      inventory,
+      characters,
+      quests
+    },
+    changed: inventoryChanged || charactersChanged || questsChanged
+  };
+}
+
+function normalizeLegacyPostRunDelta(raw: unknown): { postRunDelta: ActiveRunPlan["postRunDelta"] | null; changed: boolean } {
+  if (typeof raw !== "string" || raw.length === 0) {
+    return { postRunDelta: null, changed: true };
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return normalizePostRunDelta(parsed);
+  } catch {
+    return { postRunDelta: null, changed: true };
+  }
+}
+
 function normalizeActiveRunPlan(raw: unknown): { activeRunPlan: ActiveRunPlan | null; changed: boolean } {
   if (raw == null) {
     return { activeRunPlan: null, changed: false };
@@ -315,6 +475,7 @@ function normalizeActiveRunPlan(raw: unknown): { activeRunPlan: ActiveRunPlan | 
   const finishAt = raw.finishAt;
   const pausedAtRaw = raw.pausedAt;
   const pausedAccumMsRaw = raw.pausedAccumMs;
+  const postRunDeltaRaw = raw.postRunDelta;
   const postRunSaveJson = raw.postRunSaveJson;
 
   if (
@@ -334,8 +495,7 @@ function normalizeActiveRunPlan(raw: unknown): { activeRunPlan: ActiveRunPlan | 
     !Array.isArray(run.reasonTags) ||
     !Array.isArray(run.events) ||
     typeof startedAt !== "number" ||
-    typeof finishAt !== "number" ||
-    typeof postRunSaveJson !== "string"
+    typeof finishAt !== "number"
   ) {
     return { activeRunPlan: null, changed: true };
   }
@@ -351,6 +511,15 @@ function normalizeActiveRunPlan(raw: unknown): { activeRunPlan: ActiveRunPlan | 
     typeof pausedAccumMsRaw === "number" && Number.isFinite(pausedAccumMsRaw) && pausedAccumMsRaw >= 0
       ? Math.floor(pausedAccumMsRaw)
       : 0;
+  const { postRunDelta, changed: postRunDeltaChanged } = normalizePostRunDelta(postRunDeltaRaw);
+  const legacy = !postRunDelta && typeof postRunSaveJson === "string"
+    ? normalizeLegacyPostRunDelta(postRunSaveJson)
+    : null;
+  const resolvedPostRunDelta = postRunDelta ?? legacy?.postRunDelta ?? null;
+  if (!resolvedPostRunDelta) {
+    return { activeRunPlan: null, changed: true };
+  }
+
   const pauseChanged = pausedAt !== pausedAtRaw || pausedAccumMs !== pausedAccumMsRaw;
 
   return {
@@ -360,9 +529,9 @@ function normalizeActiveRunPlan(raw: unknown): { activeRunPlan: ActiveRunPlan | 
       finishAt,
       pausedAt,
       pausedAccumMs,
-      postRunSaveJson
+      postRunDelta: resolvedPostRunDelta
     },
-    changed: pauseChanged
+    changed: pauseChanged || postRunDeltaChanged || legacy != null
   };
 }
 

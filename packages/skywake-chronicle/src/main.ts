@@ -146,6 +146,87 @@ function planElapsedMs(plan: ActiveRunPlan, now = Date.now()): number {
   return clamp(elapsed, 0, durationMs);
 }
 
+function cloneJson<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function normalizeRunForArchive(run: SaveData["runs"][number]): SaveData["runs"][number] {
+  return cloneJson(run);
+}
+
+function archiveRunSummaryInPlace(summary: SaveData["archivedRunSummary"], run: SaveData["runs"][number]): void {
+  const progressRate = Math.min(1, run.reachedFloor / Math.max(1, run.plannedFloor));
+  summary.archivedRuns += 1;
+  summary.progressRateSum += progressRate;
+  summary.retainedGoldSum += run.retainedGold;
+  summary.retainedMaterialsSum += run.retainedMaterials;
+
+  if (run.status === "completed") summary.completed += 1;
+  else if (run.status === "retreated") summary.retreated += 1;
+  else if (run.status === "failed") summary.failed += 1;
+
+  run.reasonTags.forEach((tag) => {
+    summary.reasonTagCounts[tag] = (summary.reasonTagCounts[tag] ?? 0) + 1;
+  });
+}
+
+function hasValidPostRunDelta(delta: unknown): delta is ActiveRunPlan["postRunDelta"] {
+  if (!delta || typeof delta !== "object" || Array.isArray(delta)) return false;
+  const value = delta as Record<string, unknown>;
+
+  if (
+    typeof value.runCounter !== "number" ||
+    !Number.isFinite(value.runCounter) ||
+    value.runCounter < 0 ||
+    typeof value.gold !== "number" ||
+    !Number.isFinite(value.gold) ||
+    value.gold < 0 ||
+    typeof value.materials !== "number" ||
+    !Number.isFinite(value.materials) ||
+    value.materials < 0 ||
+    typeof value.fatePoints !== "number" ||
+    !Number.isFinite(value.fatePoints) ||
+    value.fatePoints < 0
+  ) {
+    return false;
+  }
+
+  if (typeof value.inventory !== "object" || value.inventory == null || Array.isArray(value.inventory)) return false;
+  if (!Object.values(value.inventory as Record<string, unknown>).every((count) => typeof count === "number" && Number.isFinite(count) && count >= 0)) {
+    return false;
+  }
+
+  if (!Array.isArray(value.characters)) return false;
+  const charsOk = value.characters.every((character) => {
+    if (!character || typeof character !== "object" || Array.isArray(character)) return false;
+    const item = character as Record<string, unknown>;
+    return (
+      typeof item.uid === "string" &&
+      typeof item.name === "string" &&
+      (item.role === "tank" || item.role === "dps" || item.role === "support") &&
+      typeof item.level === "number" &&
+      typeof item.maxStress === "number" &&
+      typeof item.maxResource === "number"
+    );
+  });
+  if (!charsOk) return false;
+
+  if (!Array.isArray(value.quests)) return false;
+  const questsOk = value.quests.every((quest) => {
+    if (!quest || typeof quest !== "object" || Array.isArray(quest)) return false;
+    const item = quest as Record<string, unknown>;
+    return (
+      typeof item.id === "string" &&
+      typeof item.dungeonId === "string" &&
+      (item.status === "active" || item.status === "completed") &&
+      typeof item.targetFloor === "number"
+    );
+  });
+  if (!questsOk) return false;
+
+  return true;
+}
+
 function retimeRunForDuration(run: SaveData["runs"][number], startedAt: number, finishAt: number): SaveData["runs"][number] {
   const durationMs = Math.max(1000, finishAt - startedAt);
   const totalSeconds = Math.max(1, Math.floor(durationMs / 1000));
@@ -842,28 +923,40 @@ function finalizeActiveRunIfDue(force = false): boolean {
     if (elapsedMs < durationMs) return false;
   }
 
-  let postRunSave: SaveData | null = null;
-  try {
-    postRunSave = JSON.parse(plan.postRunSaveJson) as SaveData;
-  } catch {
-    postRunSave = null;
-  }
-
-  if (!postRunSave || !Array.isArray(postRunSave.runs)) {
+  if (!hasValidPostRunDelta(plan.postRunDelta)) {
     save.activeRunPlan = null;
     persistSave(save);
     setBanner("进行中的出征数据损坏，已清理任务。");
     return true;
   }
+  const postRunDelta = plan.postRunDelta;
 
   const preservedSettings = save.settings;
   const preservedOnboarding = save.onboarding;
   const preservedProfiles = save.tacticsProfiles;
   const preservedProfileId = save.activePartyTacticProfileId;
   const preservedHintClaims = save.hintClaims;
+  const nextArchived = {
+    ...save.archivedRunSummary,
+    reasonTagCounts: { ...save.archivedRunSummary.reasonTagCounts }
+  };
+  const nextRuns = [normalizeRunForArchive(plan.run), ...save.runs.filter((run) => run.runId !== plan.run.runId)];
+  if (nextRuns.length > 30) {
+    const archivedRuns = nextRuns.splice(30);
+    archivedRuns.forEach((run) => archiveRunSummaryInPlace(nextArchived, run));
+  }
 
   save = {
-    ...postRunSave,
+    ...save,
+    runCounter: Math.floor(postRunDelta.runCounter),
+    gold: Math.floor(postRunDelta.gold),
+    materials: Math.floor(postRunDelta.materials),
+    fatePoints: Math.floor(postRunDelta.fatePoints),
+    inventory: cloneJson(postRunDelta.inventory),
+    characters: cloneJson(postRunDelta.characters),
+    quests: cloneJson(postRunDelta.quests),
+    runs: nextRuns,
+    archivedRunSummary: nextArchived,
     settings: preservedSettings,
     onboarding: preservedOnboarding,
     tacticsProfiles: preservedProfiles,
@@ -1912,9 +2005,14 @@ function startRun(): void {
   const startedAt = Date.now();
   const finishAt = startedAt + durationMs;
   const timedRun = retimeRunForDuration(simulation.run, startedAt, finishAt);
-  const postRunSave: SaveData = {
-    ...simulation.save,
-    activeRunPlan: null
+  const postRunDelta: ActiveRunPlan["postRunDelta"] = {
+    runCounter: simulation.save.runCounter,
+    gold: simulation.save.gold,
+    materials: simulation.save.materials,
+    fatePoints: simulation.save.fatePoints,
+    inventory: cloneJson(simulation.save.inventory),
+    characters: cloneJson(simulation.save.characters),
+    quests: cloneJson(simulation.save.quests)
   };
 
   save = {
@@ -1926,7 +2024,7 @@ function startRun(): void {
       finishAt,
       pausedAt: null,
       pausedAccumMs: 0,
-      postRunSaveJson: JSON.stringify(postRunSave)
+      postRunDelta
     }
   };
   markOnboardingStep("startedRun");

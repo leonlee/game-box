@@ -203,13 +203,23 @@ export interface RunSummary {
   events: RunEvent[];
 }
 
+export interface PostRunDelta {
+  runCounter: number;
+  gold: number;
+  materials: number;
+  fatePoints: number;
+  inventory: Record<string, number>;
+  characters: CharacterState[];
+  quests: QuestState[];
+}
+
 export interface ActiveRunPlan {
   run: RunSummary;
   startedAt: number;
   finishAt: number;
   pausedAt: number | null;
   pausedAccumMs: number;
-  postRunSaveJson: string;
+  postRunDelta: PostRunDelta;
 }
 
 export interface SaveData {

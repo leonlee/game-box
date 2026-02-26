@@ -183,8 +183,9 @@ function gainXp(save: SaveData, reachedFloor: number, status: RunStatus): void {
   const baseXp = status === "completed" ? reachedFloor * 20 : status === "retreated" ? reachedFloor * 12 : reachedFloor * 8;
   save.characters.forEach((character) => {
     character.xp += baseXp;
-    const threshold = character.level * 100;
-    if (character.xp >= threshold) {
+    while (character.xp >= character.level * 100) {
+      const threshold = character.level * 100;
+      if (threshold <= 0) break;
       character.level += 1;
       character.xp -= threshold;
       character.maxStress += 4;
