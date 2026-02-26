@@ -202,6 +202,13 @@ export interface RunSummary {
   events: RunEvent[];
 }
 
+export interface ActiveRunPlan {
+  run: RunSummary;
+  startedAt: number;
+  finishAt: number;
+  postRunSaveJson: string;
+}
+
 export interface SaveData {
   saveId: string;
   saveVersion: number;
@@ -218,6 +225,7 @@ export interface SaveData {
   hintClaims: Record<string, number>;
   settings: SaveSettings;
   onboarding: OnboardingProgress;
+  activeRunPlan: ActiveRunPlan | null;
   archivedRunSummary: ArchivedRunSummary;
   inventory: Record<string, number>;
   characters: CharacterState[];

@@ -87,8 +87,101 @@ interface ReplayMoment {
   ruleId: string | null;
 }
 
+interface ActiveRunSnapshot {
+  run: SaveData["runs"][number];
+  progressRate: number;
+  elapsedMs: number;
+  remainingMs: number;
+  durationMs: number;
+  startedAt: number;
+  finishAt: number;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+function deepCloneSave(source: SaveData): SaveData {
+  return JSON.parse(JSON.stringify(source)) as SaveData;
+}
+
+function retimeRunForDuration(run: SaveData["runs"][number], startedAt: number, finishAt: number): SaveData["runs"][number] {
+  const durationMs = Math.max(1000, finishAt - startedAt);
+  const totalSeconds = Math.max(1, Math.floor(durationMs / 1000));
+  const events = run.events.map((event, index, list) => {
+    const offset = list.length <= 1 ? 0 : Math.round((index / (list.length - 1)) * totalSeconds);
+    return {
+      ...event,
+      time_offset_sec: clamp(offset, 0, totalSeconds)
+    };
+  });
+
+  return {
+    ...run,
+    startedAt,
+    finishedAt: finishAt,
+    events
+  };
+}
+
+function formatCountdown(ms: number): string {
+  const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) {
+    return `${hours}小时${minutes}分${seconds}秒`;
+  }
+  return `${minutes}分${seconds}秒`;
+}
+
+function computePlannedDurationMs(minMinutes: number, maxMinutes: number, seed: number): number {
+  const min = Math.max(1, Math.floor(Math.min(minMinutes, maxMinutes)));
+  const max = Math.max(min, Math.floor(Math.max(minMinutes, maxMinutes)));
+  const span = max - min;
+  const ratio = (Math.abs(seed) % 997) / 996;
+  const minutes = min + Math.round(span * ratio);
+  return Math.max(60_000, minutes * 60_000);
+}
+
+function getActiveRunSnapshot(now = Date.now()): ActiveRunSnapshot | null {
+  const plan = save.activeRunPlan;
+  if (!plan) return null;
+
+  const durationMs = Math.max(1000, plan.finishAt - plan.startedAt);
+  const elapsedMs = clamp(now - plan.startedAt, 0, durationMs);
+  const remainingMs = Math.max(0, durationMs - elapsedMs);
+  const progressRate = clamp(elapsedMs / durationMs, 0, 1);
+  const elapsedSec = Math.floor(elapsedMs / 1000);
+  const visibleEvents = plan.run.events.filter((event) => event.time_offset_sec <= elapsedSec);
+  const fallbackEvents = visibleEvents.length > 0 ? visibleEvents : plan.run.events.slice(0, 1);
+  const reachedFloor = fallbackEvents.reduce((max, event) => Math.max(max, event.floor), 1);
+  const reasonTags = Array.from(new Set(fallbackEvents.flatMap((event) => event.reason_tags)));
+  const running = progressRate < 1;
+  const runStatus = running ? "running" : plan.run.status;
+
+  return {
+    run: {
+      ...plan.run,
+      status: runStatus,
+      reachedFloor: running ? reachedFloor : plan.run.reachedFloor,
+      retainedGold: running ? 0 : plan.run.retainedGold,
+      retainedMaterials: running ? 0 : plan.run.retainedMaterials,
+      reasonTags,
+      events: fallbackEvents
+    },
+    progressRate,
+    elapsedMs,
+    remainingMs,
+    durationMs,
+    startedAt: plan.startedAt,
+    finishAt: plan.finishAt
+  };
+}
+
 function pickDefaultRunId(): string {
-  return save.runs[0]?.runId ?? "";
+  const activeRun = getActiveRunSnapshot()?.run;
+  return activeRun?.runId ?? save.runs[0]?.runId ?? "";
 }
 
 function initialEditorText(): string {
@@ -137,12 +230,14 @@ function getDungeon() {
 
 function clampPlannedFloor(value: number): number {
   const dungeon = getDungeon();
-  return Math.max(1, Math.min(dungeon.maxFloor, value));
+  return clamp(value, 1, dungeon.maxFloor);
 }
 
 function getSelectedRun() {
-  if (!ui.selectedRunId) return save.runs[0] ?? null;
-  return save.runs.find((run) => run.runId === ui.selectedRunId) ?? save.runs[0] ?? null;
+  const activeRun = getActiveRunSnapshot()?.run ?? null;
+  if (!ui.selectedRunId) return activeRun ?? save.runs[0] ?? null;
+  if (activeRun && ui.selectedRunId === activeRun.runId) return activeRun;
+  return save.runs.find((run) => run.runId === ui.selectedRunId) ?? activeRun ?? save.runs[0] ?? null;
 }
 
 function summarizeReasonCounts(tags: ReasonTag[]): string {
@@ -651,6 +746,63 @@ function notifyRunComplete(run: SaveData["runs"][number]): void {
   }
 }
 
+function finalizeActiveRunIfDue(force = false): boolean {
+  const plan = save.activeRunPlan;
+  if (!plan) return false;
+  if (!force && Date.now() < plan.finishAt) return false;
+
+  let postRunSave: SaveData | null = null;
+  try {
+    postRunSave = JSON.parse(plan.postRunSaveJson) as SaveData;
+  } catch {
+    postRunSave = null;
+  }
+
+  if (!postRunSave || !Array.isArray(postRunSave.runs)) {
+    save.activeRunPlan = null;
+    persistSave(save);
+    setBanner("进行中的出征数据损坏，已清理任务。");
+    return true;
+  }
+
+  const preservedSettings = save.settings;
+  const preservedOnboarding = save.onboarding;
+  const preservedProfiles = save.tacticsProfiles;
+  const preservedProfileId = save.activePartyTacticProfileId;
+  const preservedHintClaims = save.hintClaims;
+
+  save = {
+    ...postRunSave,
+    settings: preservedSettings,
+    onboarding: preservedOnboarding,
+    tacticsProfiles: preservedProfiles,
+    activePartyTacticProfileId: preservedProfileId,
+    hintClaims: preservedHintClaims,
+    activeRunPlan: null
+  };
+  persistSave(save);
+
+  const finishedRun = save.runs.find((run) => run.runId === plan.run.runId) ?? save.runs[0] ?? null;
+  if (finishedRun) {
+    ui = {
+      ...ui,
+      selectedRunId: finishedRun.runId,
+      replayIndex: 0,
+      expandedLogSeq: 0,
+      logTypeFilter: "all",
+      logReasonFilter: "all"
+    };
+    setBanner(
+      `出征完成：${finishedRun.status} · +${finishedRun.retainedGold} 金币 / +${finishedRun.retainedMaterials} 材料`
+    );
+    notifyRunComplete(finishedRun);
+  } else {
+    setBanner("出征已完成并结算。");
+  }
+
+  return true;
+}
+
 function renderCharacterCards(): string {
   return save.characters
     .map((character) => {
@@ -682,6 +834,8 @@ function renderCharacterCards(): string {
 function renderExpeditionTab(): string {
   const dungeon = getDungeon();
   const estimate = estimateRunMinutes(save, { dungeonId: dungeon.id, plannedFloor: ui.plannedFloor });
+  const activeRunSnapshot = getActiveRunSnapshot();
+  const runInProgress = activeRunSnapshot !== null;
   const run = getSelectedRun();
   const assist = getFailureAssistForDungeon(dungeon.id);
   const diagnosis = getRunDiagnosis(run, run?.dungeonId ?? dungeon.id);
@@ -798,11 +952,30 @@ function renderExpeditionTab(): string {
           </div>
         </div>
 
-        <button class="primary" data-action="start-run">派遣小队</button>
+        <button class="primary" data-action="start-run" ${runInProgress ? "disabled" : ""}>
+          ${runInProgress ? "探险进行中" : "派遣小队"}
+        </button>
       </article>
 
+      ${
+        activeRunSnapshot
+          ? `<article class="panel">
+              <h3>实时探险进度</h3>
+              <div class="touch-list compact">
+                <div class="touch-item"><span>Run ID</span><strong>${activeRunSnapshot.run.runId}</strong></div>
+                <div class="touch-item"><span>推进层数</span><strong>${activeRunSnapshot.run.reachedFloor} / ${activeRunSnapshot.run.plannedFloor}</strong></div>
+                <div class="touch-item"><span>进度</span><strong>${percentText(activeRunSnapshot.progressRate)}</strong></div>
+                <div class="touch-item"><span>剩余时间</span><strong>${formatCountdown(activeRunSnapshot.remainingMs)}</strong></div>
+                <div class="touch-item"><span>预计返航</span><strong>${new Date(activeRunSnapshot.finishAt).toLocaleTimeString()}</strong></div>
+              </div>
+              <div class="meter progress-meter"><i style="width:${Math.round(activeRunSnapshot.progressRate * 100)}%;"></i></div>
+              <p class="hint">日志会随时间推进逐步解锁，不再瞬间结算。</p>
+            </article>`
+          : ""
+      }
+
       <article class="panel">
-        <h3>最近一次出征</h3>
+        <h3>${runInProgress ? "当前出征" : "最近一次出征"}</h3>
         ${
           run
             ? `<div class="touch-list compact">
@@ -1105,6 +1278,7 @@ function renderTownTab(): string {
 
 function renderStorageTab(): string {
   const lifetime = buildLifetimeRunStats();
+  const activeRunSnapshot = getActiveRunSnapshot();
   const inventory = Object.entries(INVENTORY_CATALOG)
     .map(([id, item]) => {
       const count = save.inventory[id] ?? 0;
@@ -1112,16 +1286,19 @@ function renderStorageTab(): string {
     })
     .join("");
 
-  const runHistory = save.runs
+  const runArchive = activeRunSnapshot ? [activeRunSnapshot.run, ...save.runs] : save.runs;
+  const runHistory = runArchive
     .map((run) => {
       const active = run.runId === ui.selectedRunId;
+      const inProgress = run.status === "running";
       return `
       <li class="touch-item ${active ? "active" : ""}">
         <div class="row">
           <strong>${run.runId}</strong>
-          <span>${run.status}</span>
+          <span>${inProgress ? "running（进行中）" : run.status}</span>
         </div>
         <p>迷宫 ${run.dungeonId} · 层数 ${run.reachedFloor}/${run.plannedFloor} · +${run.retainedGold}G +${run.retainedMaterials}M</p>
+        ${inProgress && activeRunSnapshot ? `<p class="hint">预计剩余 ${formatCountdown(activeRunSnapshot.remainingMs)}</p>` : ""}
         <button data-action="view-run" data-value="${run.runId}">查看日志</button>
       </li>`;
     })
@@ -1511,21 +1688,48 @@ function applyRulesEditor(): void {
 }
 
 function startRun(): void {
+  finalizeActiveRunIfDue();
+  if (save.activeRunPlan) {
+    const snapshot = getActiveRunSnapshot();
+    const remainText = snapshot ? formatCountdown(snapshot.remainingMs) : "稍后";
+    setBanner(`已有出征任务进行中，预计 ${remainText} 后返航。`);
+    return;
+  }
+
   const dungeon = getDungeon();
   const plannedFloor = clampPlannedFloor(ui.plannedFloor);
-
-  const result = simulateRun(save, {
+  const request = {
     dungeonId: dungeon.id,
     plannedFloor
-  });
+  };
+  const estimate = estimateRunMinutes(save, request);
+  const simulationSave = deepCloneSave(save);
+  const simulation = simulateRun(simulationSave, request);
+  const durationMs = computePlannedDurationMs(estimate.minMinutes, estimate.maxMinutes, simulation.run.seed);
+  const startedAt = Date.now();
+  const finishAt = startedAt + durationMs;
+  const timedRun = retimeRunForDuration(simulation.run, startedAt, finishAt);
+  const postRunSave: SaveData = {
+    ...simulation.save,
+    activeRunPlan: null
+  };
 
-  save = result.save;
+  save = {
+    ...save,
+    runCounter: simulation.save.runCounter,
+    activeRunPlan: {
+      run: timedRun,
+      startedAt,
+      finishAt,
+      postRunSaveJson: JSON.stringify(postRunSave)
+    }
+  };
   markOnboardingStep("startedRun");
   persistSave(save);
 
   ui = {
     ...ui,
-    selectedRunId: result.run.runId,
+    selectedRunId: timedRun.runId,
     replayIndex: 0,
     expandedLogSeq: 0,
     tab: "expedition",
@@ -1533,8 +1737,7 @@ function startRun(): void {
     logReasonFilter: "all"
   };
 
-  setBanner(`出征完成：${result.run.status} · +${result.run.retainedGold} 金币 / +${result.run.retainedMaterials} 材料`);
-  notifyRunComplete(result.run);
+  setBanner(`出征已开始：预计 ${formatCountdown(durationMs)} 后返航。`);
 }
 
 function handleClick(event: MouseEvent): void {
@@ -1546,6 +1749,29 @@ function handleClick(event: MouseEvent): void {
   const action = button.dataset.action;
   const value = button.dataset.value ?? "";
   const questId = button.dataset.questId ?? "";
+  finalizeActiveRunIfDue();
+  const blockedWhileRunning = new Set([
+    "start-run",
+    "apply-preset",
+    "apply-rules",
+    "buy-item",
+    "craft-calibrator",
+    "apply-diagnosis-preset",
+    "apply-analytics-preset",
+    "apply-failure-assist",
+    "guide-apply-balanced",
+    "guide-start-run",
+    "import-save",
+    "wipe-save"
+  ]);
+  if (action && save.activeRunPlan && blockedWhileRunning.has(action)) {
+    const snapshot = getActiveRunSnapshot();
+    const remainText = snapshot ? formatCountdown(snapshot.remainingMs) : "稍后";
+    setBanner(`队伍仍在探险中（剩余 ${remainText}），请等待返航后再操作。`);
+    render();
+    return;
+  }
+
   const selectedRun = getSelectedRun();
   const replayMoments = buildReplayMoments(selectedRun);
   const replayIndex = clampReplayIndex(ui.replayIndex, replayMoments.length);
@@ -1587,7 +1813,8 @@ function handleClick(event: MouseEvent): void {
     }
   } else if (action === "filter-log-reason") {
     const reason = value as ReasonTag;
-    const runWithReason = save.runs.find((item) => item.reasonTags.includes(reason));
+    const activeRun = getActiveRunSnapshot()?.run ?? null;
+    const runWithReason = [activeRun, ...save.runs].find((item) => item?.reasonTags.includes(reason));
     ui = {
       ...ui,
       tab: "expedition",
@@ -1748,5 +1975,14 @@ function handleInput(event: Event): void {
 app.addEventListener("click", handleClick);
 app.addEventListener("change", handleChange);
 app.addEventListener("input", handleInput);
+
+finalizeActiveRunIfDue();
+window.setInterval(() => {
+  if (!save.activeRunPlan) return;
+  const finalized = finalizeActiveRunIfDue();
+  if (finalized || ui.tab === "expedition" || ui.tab === "storage") {
+    render();
+  }
+}, 1000);
 
 render();

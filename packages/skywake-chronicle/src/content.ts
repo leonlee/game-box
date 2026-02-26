@@ -717,6 +717,7 @@ export function createDefaultSave(): SaveData {
       startedRun: false,
       viewedDebugLog: false
     },
+    activeRunPlan: null,
     archivedRunSummary: {
       archivedRuns: 0,
       completed: 0,

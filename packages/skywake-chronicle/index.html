@@ -136,6 +136,11 @@
       color: #f4c2c2;
     }
 
+    button:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+
     main {
       display: flex;
       flex-direction: column;
@@ -382,6 +387,16 @@
 
     .meter.resource i {
       background: linear-gradient(90deg, #8a5fb7, #bc9ee8);
+    }
+
+    .meter.progress-meter {
+      height: 12px;
+      border-color: #4a6747;
+      background: #0f1c13;
+    }
+
+    .meter.progress-meter i {
+      background: linear-gradient(90deg, #5da95d, #9fd86b);
     }
 
     .meta {

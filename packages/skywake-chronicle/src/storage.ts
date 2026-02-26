@@ -1,6 +1,7 @@
 import { APP_MAJOR_VERSION, SAVE_VERSION, STORAGE_KEY, createDefaultSave } from "./content";
 import { ACTIONS, createTacticsConfig, validateTacticsConfig } from "./tactics";
 import {
+  ActiveRunPlan,
   ArchivedRunSummary,
   Action,
   FallbackByRole,
@@ -286,6 +287,58 @@ function normalizeArchivedRunSummary(raw: unknown): { archivedRunSummary: Archiv
   };
 }
 
+function normalizeActiveRunPlan(raw: unknown): { activeRunPlan: ActiveRunPlan | null; changed: boolean } {
+  if (raw == null) {
+    return { activeRunPlan: null, changed: false };
+  }
+
+  if (!isRecord(raw)) {
+    return { activeRunPlan: null, changed: true };
+  }
+
+  const run = raw.run;
+  const startedAt = raw.startedAt;
+  const finishAt = raw.finishAt;
+  const postRunSaveJson = raw.postRunSaveJson;
+
+  if (
+    !isRecord(run) ||
+    typeof run.runId !== "string" ||
+    typeof run.dungeonId !== "string" ||
+    typeof run.plannedFloor !== "number" ||
+    typeof run.reachedFloor !== "number" ||
+    typeof run.status !== "string" ||
+    typeof run.startedAt !== "number" ||
+    typeof run.finishedAt !== "number" ||
+    typeof run.seed !== "number" ||
+    typeof run.rawGold !== "number" ||
+    typeof run.rawMaterials !== "number" ||
+    typeof run.retainedGold !== "number" ||
+    typeof run.retainedMaterials !== "number" ||
+    !Array.isArray(run.reasonTags) ||
+    !Array.isArray(run.events) ||
+    typeof startedAt !== "number" ||
+    typeof finishAt !== "number" ||
+    typeof postRunSaveJson !== "string"
+  ) {
+    return { activeRunPlan: null, changed: true };
+  }
+
+  if (finishAt <= startedAt) {
+    return { activeRunPlan: null, changed: true };
+  }
+
+  return {
+    activeRunPlan: {
+      run: run as unknown as SaveData["runs"][number],
+      startedAt,
+      finishAt,
+      postRunSaveJson
+    },
+    changed: false
+  };
+}
+
 function migrateSave(raw: SaveData): { save: SaveData; changed: boolean } {
   const normalizedHintClaims = isRecord(raw.hintClaims)
     ? Object.entries(raw.hintClaims).reduce<Record<string, number>>((acc, [key, value]) => {
@@ -300,12 +353,14 @@ function migrateSave(raw: SaveData): { save: SaveData; changed: boolean } {
   const { onboarding: normalizedOnboarding, changed: onboardingChanged } = normalizeOnboarding(raw.onboarding);
   const { archivedRunSummary: normalizedArchivedRunSummary, changed: archivedRunSummaryChanged } =
     normalizeArchivedRunSummary(raw.archivedRunSummary);
+  const { activeRunPlan: normalizedActiveRunPlan, changed: activeRunPlanChanged } = normalizeActiveRunPlan(raw.activeRunPlan);
 
   const migrated: SaveData = {
     ...raw,
     hintClaims: normalizedHintClaims,
     settings: normalizedSettings,
     onboarding: normalizedOnboarding,
+    activeRunPlan: normalizedActiveRunPlan,
     archivedRunSummary: normalizedArchivedRunSummary,
     tacticsProfiles: raw.tacticsProfiles,
     runs: Array.isArray(raw.runs) ? raw.runs : []
@@ -327,7 +382,8 @@ function migrateSave(raw: SaveData): { save: SaveData; changed: boolean } {
   const hintClaimsWasMissing = !isRecord(raw.hintClaims);
   return {
     save: migrated,
-    changed: changed || hintClaimsWasMissing || settingsChanged || onboardingChanged || archivedRunSummaryChanged
+    changed:
+      changed || hintClaimsWasMissing || settingsChanged || onboardingChanged || archivedRunSummaryChanged || activeRunPlanChanged
   };
 }
 
