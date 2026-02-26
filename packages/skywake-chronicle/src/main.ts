@@ -45,6 +45,23 @@ interface RunDiagnosis {
   actions: DiagnosisAction[];
 }
 
+interface RunAnalytics {
+  scopeLabel: string;
+  sampleSize: number;
+  completed: number;
+  retreated: number;
+  failed: number;
+  completionRate: number;
+  retreatRate: number;
+  failRate: number;
+  avgProgressRate: number;
+  avgRetainedGold: number;
+  avgRetainedMaterials: number;
+  topReasons: Array<{ tag: ReasonTag; count: number }>;
+  primaryReason: ReasonTag | null;
+  recommendStyle: TacticStyle | null;
+}
+
 function pickDefaultRunId(): string {
   return save.runs[0]?.runId ?? "";
 }
@@ -111,6 +128,10 @@ function summarizeReasonCounts(tags: ReasonTag[]): string {
   return [...counts.entries()]
     .map(([tag, count]) => `${tag} x${count}`)
     .join(" / ");
+}
+
+function percentText(rate: number): string {
+  return `${Math.round(rate * 100)}%`;
 }
 
 function styleLabel(style: TacticStyle): string {
@@ -285,6 +306,68 @@ function getRunDiagnosis(run: SaveData["runs"][number] | null, dungeonId: string
   };
 }
 
+function buildRunAnalytics(dungeonId: string, limit = 20): RunAnalytics | null {
+  const dungeonRuns = save.runs.filter((run) => run.dungeonId === dungeonId).slice(0, limit);
+  const runs = dungeonRuns.length > 0 ? dungeonRuns : save.runs.slice(0, limit);
+  if (runs.length === 0) return null;
+
+  let completed = 0;
+  let retreated = 0;
+  let failed = 0;
+  let progressSum = 0;
+  let retainedGoldSum = 0;
+  let retainedMaterialsSum = 0;
+  const reasonCounts = new Map<ReasonTag, number>();
+  const primaryCounts = new Map<ReasonTag, number>();
+
+  runs.forEach((run) => {
+    if (run.status === "completed") completed += 1;
+    else if (run.status === "retreated") retreated += 1;
+    else if (run.status === "failed") failed += 1;
+
+    progressSum += Math.min(1, run.reachedFloor / Math.max(1, run.plannedFloor));
+    retainedGoldSum += run.retainedGold;
+    retainedMaterialsSum += run.retainedMaterials;
+
+    run.reasonTags.forEach((tag) => {
+      reasonCounts.set(tag, (reasonCounts.get(tag) ?? 0) + 1);
+    });
+
+    if (run.reasonTags.length > 0) {
+      const primary = resolvePrimaryReason(run.reasonTags);
+      primaryCounts.set(primary, (primaryCounts.get(primary) ?? 0) + 1);
+    }
+  });
+
+  const topReasons = [...reasonCounts.entries()]
+    .sort((a, b) => {
+      if (b[1] !== a[1]) return b[1] - a[1];
+      return a[0].localeCompare(b[0]);
+    })
+    .slice(0, 3)
+    .map(([tag, count]) => ({ tag, count }));
+
+  const primaryReason = [...primaryCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+  const recommendStyle = primaryReason ? recommendStyleByReason(primaryReason) : null;
+
+  return {
+    scopeLabel: dungeonRuns.length > 0 ? `当前迷宫近 ${runs.length} 次` : `全局近 ${runs.length} 次`,
+    sampleSize: runs.length,
+    completed,
+    retreated,
+    failed,
+    completionRate: completed / runs.length,
+    retreatRate: retreated / runs.length,
+    failRate: failed / runs.length,
+    avgProgressRate: progressSum / runs.length,
+    avgRetainedGold: retainedGoldSum / runs.length,
+    avgRetainedMaterials: retainedMaterialsSum / runs.length,
+    topReasons,
+    primaryReason,
+    recommendStyle
+  };
+}
+
 function isOnboardingComplete(): boolean {
   return (
     save.onboarding.openedPartyTab &&
@@ -434,6 +517,7 @@ function renderExpeditionTab(): string {
   const run = getSelectedRun();
   const assist = getFailureAssistForDungeon(dungeon.id);
   const diagnosis = getRunDiagnosis(run, run?.dungeonId ?? dungeon.id);
+  const analytics = buildRunAnalytics(dungeon.id);
   const allReasons = run ? Array.from(new Set(run.events.flatMap((event) => event.reason_tags))).sort() : [];
 
   const filteredEvents = run
@@ -569,6 +653,41 @@ function renderExpeditionTab(): string {
                         )
                         .join("")}
                     </div>`
+                  : ""
+              }
+            </article>`
+          : ""
+      }
+
+      ${
+        analytics
+          ? `<article class="panel">
+              <h3>近期统计看板</h3>
+              <p class="hint">${escapeHtml(analytics.scopeLabel)}</p>
+              <div class="touch-list compact">
+                <div class="touch-item"><span>完成 / 撤退 / 失败</span><strong>${percentText(analytics.completionRate)} / ${percentText(analytics.retreatRate)} / ${percentText(analytics.failRate)}</strong></div>
+                <div class="touch-item"><span>平均推进</span><strong>${percentText(analytics.avgProgressRate)}</strong></div>
+                <div class="touch-item"><span>平均结算</span><strong>+${Math.round(analytics.avgRetainedGold)}G / +${Math.round(analytics.avgRetainedMaterials)}M</strong></div>
+                <div class="touch-item"><span>样本</span><strong>${analytics.sampleSize} runs</strong></div>
+              </div>
+              <div class="touch-list compact">
+                ${
+                  analytics.topReasons.length > 0
+                    ? analytics.topReasons
+                        .map(
+                          (item) =>
+                            `<div class="touch-item"><span>${escapeHtml(reasonText(item.tag))}</span><strong>${item.count} 次</strong><button data-action="filter-log-reason" data-value="${item.tag}">筛日志</button></div>`
+                        )
+                        .join("")
+                    : `<div class="touch-item"><p class="hint">当前样本未记录核心失败标签。</p></div>`
+                }
+              </div>
+              ${
+                analytics.recommendStyle && analytics.primaryReason
+                  ? `<div class="inline-buttons wrap">
+                      <button data-action="apply-analytics-preset" data-value="${analytics.recommendStyle}" class="primary">按统计建议套用${styleLabel(analytics.recommendStyle)}</button>
+                    </div>
+                    <p class="hint">统计主因：${escapeHtml(reasonText(analytics.primaryReason))}</p>`
                   : ""
               }
             </article>`
@@ -1174,6 +1293,21 @@ function handleClick(event: MouseEvent): void {
       applyPreset(value);
       setBanner(`复盘建议已应用：当前模板为${styleLabel(value)}。`);
     }
+  } else if (action === "apply-analytics-preset") {
+    if (value === "aggressive" || value === "balanced" || value === "cautious") {
+      applyPreset(value);
+      setBanner(`统计建议已应用：当前模板为${styleLabel(value)}。`);
+    }
+  } else if (action === "filter-log-reason") {
+    const reason = value as ReasonTag;
+    const runWithReason = save.runs.find((item) => item.reasonTags.includes(reason));
+    ui = {
+      ...ui,
+      tab: "expedition",
+      selectedRunId: runWithReason?.runId ?? ui.selectedRunId,
+      logReasonFilter: reason
+    };
+    setBanner(`已筛选日志原因：${reasonText(reason)}。`);
   } else if (action === "apply-failure-assist") {
     if ((value === "aggressive" || value === "balanced" || value === "cautious") && questId.length > 0) {
       applyFailureAssist(value, questId);
