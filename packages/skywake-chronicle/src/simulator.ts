@@ -1,4 +1,5 @@
-import { DUNGEONS } from "./content";
+import { DUNGEONS, getDungeonContentById } from "./content";
+import { DungeonContent, NodeContent } from "./content-pack";
 import {
   DungeonDefinition,
   EstimateResult,
@@ -15,8 +16,8 @@ import {
   activateRuleCooldown,
   fallbackActionForRole,
   getActiveProfile,
-  selectCharacterRule,
-  selectPartyRule,
+  selectCharacterRuleWithTrace,
+  selectPartyRuleWithTrace,
   tickRuleCooldowns
 } from "./tactics";
 
@@ -54,13 +55,6 @@ function mulberry32(seed: number): () => number {
 
 function pick<T>(rng: () => number, list: readonly T[]): T {
   return list[Math.floor(rng() * list.length) % list.length];
-}
-
-function pickWeightedBlocker(rng: () => number): "gate" | "environment" | "time" {
-  const roll = rng();
-  if (roll < 0.3) return "gate";
-  if (roll < 0.8) return "environment";
-  return "time";
 }
 
 function roleWeight(role: Role): number {
@@ -200,12 +194,39 @@ function getDungeonById(dungeonId: string): DungeonDefinition {
   return hit ?? DUNGEONS[0];
 }
 
+function getFloorNodes(dungeonContent: DungeonContent, floor: number): NodeContent[] {
+  return dungeonContent.floors.find((floorData) => floorData.index === floor)?.nodes ?? [];
+}
+
+function pickSceneAspectFromNodeOrPool(
+  rng: () => number,
+  node: NodeContent | undefined,
+  dungeon: DungeonDefinition
+): string {
+  if (node && node.scene_aspects.length > 0) {
+    return pick(rng, node.scene_aspects);
+  }
+  return pick(rng, dungeon.scenePool);
+}
+
+function gateModeFromNode(node: NodeContent | undefined): "gate" | "environment" | "time" | "none" {
+  if (!node?.gate_condition) return "none";
+  if (node.gate_condition.required_item_id) return "gate";
+  if (node.gate_condition.required_aspect) return "environment";
+  if (node.gate_condition.time_window) return "time";
+  return "none";
+}
+
 export function estimateRunMinutes(save: SaveData, request: ExploreRequest): EstimateResult {
   const dungeon = getDungeonById(request.dungeonId);
+  const dungeonContent = getDungeonContentById(request.dungeonId);
   const floor = clamp(request.plannedFloor, 1, dungeon.maxFloor);
 
   const floorBase = dungeon.floorBaseMin * floor;
-  const nodeEvent = Math.ceil(floor * dungeon.nodeEventMin * 1.6);
+  const nodeCount = dungeonContent.floors
+    .filter((floorData) => floorData.index <= floor)
+    .reduce((sum, floorData) => sum + floorData.nodes.length, 0);
+  const nodeEvent = Math.ceil(nodeCount * dungeon.nodeEventMin * 0.34);
 
   const hasKeyItem = (save.inventory.phase_calibrator ?? 0) > 0;
   const detourWeight = hasKeyItem ? 0.18 : 0.35;
@@ -226,6 +247,7 @@ function eventLocKey(eventType: string, outcome: "success" | "partial" | "failed
 
 export function simulateRun(save: SaveData, request: ExploreRequest): SimulationResult {
   const dungeon = getDungeonById(request.dungeonId);
+  const dungeonContent = getDungeonContentById(request.dungeonId);
   const plannedFloor = clamp(request.plannedFloor, 1, dungeon.maxFloor);
   const profile = getActiveProfile(save.tacticsProfiles, save.activePartyTacticProfileId);
 
@@ -289,28 +311,53 @@ export function simulateRun(save: SaveData, request: ExploreRequest): Simulation
     if (status !== "running") break;
 
     reachedFloor = floor;
-    const sceneAspect = pick(rng, dungeon.scenePool);
-    pushEvent(floor, `F${floor}_ENTRY`, "floor_enter", "success", { scene_aspect: sceneAspect });
+    const floorNodes = getFloorNodes(dungeonContent, floor);
+    const gateNode = floorNodes.find((node) => node.node_type === "gate");
+    const combatNode = floorNodes.find((node) => node.node_type === "combat");
+    const floorEntryScene = pickSceneAspectFromNodeOrPool(rng, gateNode ?? combatNode, dungeon);
 
-    const nodeGateId = `F${floor}_GATE`;
-    if (rng() < 0.55) {
-      const blockerType = pickWeightedBlocker(rng);
-      pushEvent(floor, nodeGateId, "node_enter", "success", { node_type: blockerType, scene_aspect: sceneAspect });
+    pushEvent(floor, `F${floor}_ENTRY`, "floor_enter", "success", {
+      scene_aspect: floorEntryScene,
+      floor_node_count: floorNodes.length
+    });
+
+    if (gateNode) {
+      const nodeGateId = gateNode.id;
+      const gateScene = pickSceneAspectFromNodeOrPool(rng, gateNode, dungeon);
+      const blockerType = gateModeFromNode(gateNode);
+      const requiredItemId = gateNode.gate_condition?.required_item_id;
+      const requiredAspect = gateNode.gate_condition?.required_aspect ?? "相位锁";
+      const expectedWindow = gateNode.gate_condition?.time_window ?? dungeon.favoredTimeWindow;
+
+      pushEvent(floor, nodeGateId, "node_enter", "success", {
+        node_type: gateNode.node_type,
+        blocker_mode: blockerType,
+        scene_aspect: gateScene,
+        gate_condition: gateNode.gate_condition ?? null
+      });
 
       if (blockerType === "gate") {
-        const partyFacts = buildPartyFacts(save, "gate", sceneAspect, false, 0, 0, false);
-        const partyRule = selectPartyRule(profile, "on_node_enter", partyFacts, cooldowns);
+        const partyFacts = buildPartyFacts(save, "gate", gateScene, false, 0, 0, false);
+        const partyDecision = selectPartyRuleWithTrace(profile, "on_node_enter", partyFacts, cooldowns);
+        const partyRule = partyDecision.rule;
         if (partyRule) activateRuleCooldown(cooldowns, partyRule);
 
-        const hasKey = (save.inventory.phase_calibrator ?? 0) > 0;
+        const hasKey = requiredItemId ? (save.inventory[requiredItemId] ?? 0) > 0 : true;
         const used = partyRule?.then.action === "use_key_item_slot";
 
-        if (hasKey && used) {
-          save.inventory.phase_calibrator = Math.max(0, (save.inventory.phase_calibrator ?? 0) - 1);
+        if (!requiredItemId) {
+          pushEvent(floor, nodeGateId, "overcome_check", "success", {
+            gate_id: nodeGateId,
+            rule_id: partyRule?.id ?? "none",
+            rule_eval_trace: partyDecision.traces
+          });
+        } else if (hasKey && used) {
+          save.inventory[requiredItemId] = Math.max(0, (save.inventory[requiredItemId] ?? 0) - 1);
           pushEvent(floor, nodeGateId, "overcome_check", "success", {
             gate_id: nodeGateId,
             rule_id: partyRule.id,
-            consumed_item: "phase_calibrator"
+            consumed_item: requiredItemId,
+            rule_eval_trace: partyDecision.traces
           });
         } else {
           status = "retreated";
@@ -321,8 +368,9 @@ export function simulateRun(save: SaveData, request: ExploreRequest): Simulation
             "failed",
             {
               gate_id: nodeGateId,
-              missing_key: "phase_calibrator",
-              rule_id: partyRule?.id ?? "none"
+              missing_key: requiredItemId ?? "phase_calibrator",
+              rule_id: partyRule?.id ?? "none",
+              rule_eval_trace: partyDecision.traces
             },
             ["missing_key_item"]
           );
@@ -333,14 +381,16 @@ export function simulateRun(save: SaveData, request: ExploreRequest): Simulation
             "failed",
             {
               rule_id: partyRule?.id ?? "none",
-              reason: "missing_key_item"
+              reason: "missing_key_item",
+              rule_eval_trace: partyDecision.traces
             },
             ["missing_key_item"]
           );
         }
       } else if (blockerType === "environment") {
-        const partyFacts = buildPartyFacts(save, "event", sceneAspect, false, 0, 0, false);
-        const partyRule = selectPartyRule(profile, "on_node_enter", partyFacts, cooldowns);
+        const partyFacts = buildPartyFacts(save, "event", gateScene, false, 0, 0, false);
+        const partyDecision = selectPartyRuleWithTrace(profile, "on_node_enter", partyFacts, cooldowns);
+        const partyRule = partyDecision.rule;
         if (partyRule) activateRuleCooldown(cooldowns, partyRule);
 
         const avgLv = averageLevel(save);
@@ -359,9 +409,11 @@ export function simulateRun(save: SaveData, request: ExploreRequest): Simulation
             "overcome_check",
             "failed",
             {
-              scene_aspect: sceneAspect,
+              required_aspect: requiredAspect,
+              scene_aspect: gateScene,
               pass_chance: Number(passChance.toFixed(2)),
-              rule_id: partyRule?.id ?? "none"
+              rule_id: partyRule?.id ?? "none",
+              rule_eval_trace: partyDecision.traces
             },
             ["missing_required_aspect", "path_blocked"]
           );
@@ -372,19 +424,22 @@ export function simulateRun(save: SaveData, request: ExploreRequest): Simulation
             "failed",
             {
               reason: "missing_required_aspect",
-              rule_id: partyRule?.id ?? "none"
+              rule_id: partyRule?.id ?? "none",
+              rule_eval_trace: partyDecision.traces
             },
             ["missing_required_aspect"]
           );
         } else {
           pushEvent(floor, nodeGateId, "overcome_check", "success", {
-            scene_aspect: sceneAspect,
-            rule_id: partyRule?.id ?? "none"
+            required_aspect: requiredAspect,
+            scene_aspect: gateScene,
+            rule_id: partyRule?.id ?? "none",
+            rule_eval_trace: partyDecision.traces
           });
         }
-      } else {
+      } else if (blockerType === "time") {
         const currentWindow = getCurrentTimeWindow();
-        if (currentWindow !== dungeon.favoredTimeWindow) {
+        if (currentWindow !== expectedWindow) {
           status = "retreated";
           pushEvent(
             floor,
@@ -392,7 +447,7 @@ export function simulateRun(save: SaveData, request: ExploreRequest): Simulation
             "overcome_check",
             "failed",
             {
-              expected: dungeon.favoredTimeWindow,
+              expected: expectedWindow,
               current: currentWindow
             },
             ["time_window_missed"]
@@ -409,33 +464,44 @@ export function simulateRun(save: SaveData, request: ExploreRequest): Simulation
           );
         } else {
           pushEvent(floor, nodeGateId, "overcome_check", "success", {
-            expected: dungeon.favoredTimeWindow,
+            expected: expectedWindow,
             current: currentWindow
           });
         }
+      } else {
+        pushEvent(floor, nodeGateId, "overcome_check", "success", {
+          gate_id: nodeGateId,
+          note: "no_gate_condition"
+        });
       }
 
       pushEvent(floor, nodeGateId, "node_exit", status === "running" ? "success" : "failed", {
-        node_type: blockerType
+        node_type: gateNode.node_type,
+        blocker_mode: blockerType
       });
 
       if (status !== "running") break;
     }
 
-    const combatNodeId = `F${floor}_COMBAT`;
-    const elite = floor % 5 === 0;
+    const combatNodeId = combatNode?.id ?? `F${floor}_COMBAT`;
+    const combatScene = pickSceneAspectFromNodeOrPool(rng, combatNode, dungeon);
+    const combatOpposition = combatNode?.opposition_level ?? Math.min(20, 4 + floor);
+    const elite = combatOpposition >= 10 || floor % 5 === 0;
     const isBoss = floor === dungeon.maxFloor;
-    let enemyHp = Math.round((28 + floor * 9) * dungeon.threatScale * (elite ? 1.35 : 1) * (isBoss ? 1.25 : 1));
+    let enemyHp = Math.round(
+      (28 + floor * 9 + combatOpposition * 2) * dungeon.threatScale * (elite ? 1.35 : 1) * (isBoss ? 1.25 : 1)
+    );
 
     pushEvent(floor, combatNodeId, "node_enter", "success", {
       node_type: "combat",
-      scene_aspect: sceneAspect
+      scene_aspect: combatScene,
+      opposition_level: combatOpposition
     });
     pushEvent(floor, combatNodeId, "combat_start", "success", {
       enemy_hp: enemyHp,
       elite,
       boss: isBoss,
-      scene_aspect: sceneAspect
+      scene_aspect: combatScene
     });
 
     let combatResolved = false;
@@ -444,8 +510,9 @@ export function simulateRun(save: SaveData, request: ExploreRequest): Simulation
       if (status !== "running") break;
       tickRuleCooldowns(cooldowns);
 
-      const partyFacts = buildPartyFacts(save, "combat", sceneAspect, elite, enemyHp > 0 ? 1 : 0, turn, isBoss);
-      const partyRule = selectPartyRule(profile, "on_turn_start", partyFacts, cooldowns);
+      const partyFacts = buildPartyFacts(save, "combat", combatScene, elite, enemyHp > 0 ? 1 : 0, turn, isBoss);
+      const partyDecision = selectPartyRuleWithTrace(profile, "on_turn_start", partyFacts, cooldowns);
+      const partyRule = partyDecision.rule;
       if (partyRule) {
         activateRuleCooldown(cooldowns, partyRule);
       }
@@ -459,7 +526,12 @@ export function simulateRun(save: SaveData, request: ExploreRequest): Simulation
           combatNodeId,
           "retreat_triggered",
           "failed",
-          { rule_id: partyRule.id, reason: tag, min_stress_pct: Math.round(minStressPct) },
+          {
+            rule_id: partyRule.id,
+            reason: tag,
+            min_stress_pct: Math.round(minStressPct),
+            rule_eval_trace: partyDecision.traces
+          },
           [tag]
         );
         break;
@@ -483,7 +555,8 @@ export function simulateRun(save: SaveData, request: ExploreRequest): Simulation
           enemy_has_aspect: elite ? ["装甲厚重"] : ["游离护甲"]
         };
 
-        const rule = selectCharacterRule(profile, "on_turn_start", characterFacts, cooldowns);
+        const decision = selectCharacterRuleWithTrace(profile, "on_turn_start", characterFacts, cooldowns);
+        const rule = decision.rule;
         if (rule) activateRuleCooldown(cooldowns, rule);
 
         let action = rule?.then.action ?? fallbackActionForRole(profile, character.role);
@@ -546,7 +619,8 @@ export function simulateRun(save: SaveData, request: ExploreRequest): Simulation
           value,
           enemy_hp_before: enemyHp,
           enemy_is_elite: elite,
-          rule_id: rule?.id ?? "fallback"
+          rule_id: rule?.id ?? "fallback",
+          rule_eval_trace: decision.traces
         });
       }
 

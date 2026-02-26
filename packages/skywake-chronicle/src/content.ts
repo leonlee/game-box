@@ -411,6 +411,10 @@ export const DUNGEONS: DungeonDefinition[] = CONTENT_PACK.dungeons.map((dungeon)
   };
 });
 
+export function getDungeonContentById(dungeonId: string): DungeonContent {
+  return CONTENT_PACK.dungeons.find((dungeon) => dungeon.id === dungeonId) ?? CONTENT_PACK.dungeons[0];
+}
+
 const SHOP_DESC_BY_ID: Record<string, string> = {
   phase_calibrator: "用于穿越相位锁门，推荐在 gate 节点通过战术槽触发。",
   potion_small: "战斗中恢复压力值，降低撤退概率。",

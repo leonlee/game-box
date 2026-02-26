@@ -88,6 +88,36 @@ export const LIMITS = {
 
 type ValueKind = "number" | "boolean" | "string" | "string[]";
 
+export interface ConditionEvalTraceLeaf {
+  kind: "leaf";
+  fact: Fact;
+  op: Operator;
+  expected: number | boolean | string | readonly string[];
+  actual: unknown;
+  result: boolean;
+}
+
+export interface ConditionEvalTraceGroup {
+  kind: "all" | "any" | "not";
+  children: ConditionEvalTrace[];
+  result: boolean;
+}
+
+export type ConditionEvalTrace = ConditionEvalTraceLeaf | ConditionEvalTraceGroup;
+
+export interface RuleDecisionTrace {
+  rule_id: string;
+  priority: number;
+  matched: boolean;
+  skip_reason?: "cooldown" | "condition_false";
+  condition_eval_trace: ConditionEvalTrace;
+}
+
+export interface RuleSelectionResult {
+  rule: TacticsRule | null;
+  traces: RuleDecisionTrace[];
+}
+
 const NUMERIC_OPERATORS: Operator[] = ["==", "!=", "<", "<=", ">", ">="];
 const BOOLEAN_OPERATORS: Operator[] = ["==", "!="];
 const STRING_OPERATORS: Operator[] = ["==", "!=", "contains", "in"];
@@ -182,8 +212,112 @@ export function evaluateCondition(
   return !evaluateCondition(expr.not, facts);
 }
 
+function evaluateConditionWithTrace(
+  expr: ConditionExpr,
+  facts: Partial<Record<Fact, unknown>>
+): ConditionEvalTrace {
+  if (isConditionLeaf(expr)) {
+    const actual = facts[expr.fact];
+    const result = compare(actual, expr.op, expr.value);
+    return {
+      kind: "leaf",
+      fact: expr.fact,
+      op: expr.op,
+      expected: expr.value,
+      actual,
+      result
+    };
+  }
+
+  if ("all" in expr) {
+    const children = expr.all.map((child) => evaluateConditionWithTrace(child, facts));
+    return {
+      kind: "all",
+      children,
+      result: children.every((child) => child.result)
+    };
+  }
+
+  if ("any" in expr) {
+    const children = expr.any.map((child) => evaluateConditionWithTrace(child, facts));
+    return {
+      kind: "any",
+      children,
+      result: children.some((child) => child.result)
+    };
+  }
+
+  const child = evaluateConditionWithTrace(expr.not, facts);
+  return {
+    kind: "not",
+    children: [child],
+    result: !child.result
+  };
+}
+
 function sortRules(rules: readonly TacticsRule[]): TacticsRule[] {
   return [...rules].sort((a, b) => b.priority - a.priority || a.id.localeCompare(b.id));
+}
+
+function selectRuleWithTrace(
+  candidates: readonly TacticsRule[],
+  facts: Partial<Record<Fact, unknown>>,
+  cooldowns: Record<string, number>
+): RuleSelectionResult {
+  const traces: RuleDecisionTrace[] = [];
+
+  for (const rule of candidates) {
+    const conditionTrace = evaluateConditionWithTrace(rule.when, facts);
+    const cd = cooldowns[rule.id] ?? 0;
+    const inCooldown = cd > 0;
+    const matched = !inCooldown && conditionTrace.result;
+
+    traces.push({
+      rule_id: rule.id,
+      priority: rule.priority,
+      matched,
+      skip_reason: matched ? undefined : inCooldown ? "cooldown" : "condition_false",
+      condition_eval_trace: conditionTrace
+    });
+
+    if (matched) {
+      return {
+        rule,
+        traces
+      };
+    }
+  }
+
+  return {
+    rule: null,
+    traces
+  };
+}
+
+export function selectPartyRuleWithTrace(
+  profile: TacticsProfile,
+  trigger: Trigger,
+  facts: Partial<Record<Fact, unknown>>,
+  cooldowns: Record<string, number>
+): RuleSelectionResult {
+  const candidates = sortRules(
+    profile.config.rules.filter((rule) => rule.scope === "party" && rule.trigger === trigger && rule.enabled)
+  );
+
+  return selectRuleWithTrace(candidates, facts, cooldowns);
+}
+
+export function selectCharacterRuleWithTrace(
+  profile: TacticsProfile,
+  trigger: Trigger,
+  facts: Partial<Record<Fact, unknown>>,
+  cooldowns: Record<string, number>
+): RuleSelectionResult {
+  const candidates = sortRules(
+    profile.config.rules.filter((rule) => rule.scope === "character" && rule.trigger === trigger && rule.enabled)
+  );
+
+  return selectRuleWithTrace(candidates, facts, cooldowns);
 }
 
 export function selectPartyRule(
@@ -192,18 +326,7 @@ export function selectPartyRule(
   facts: Partial<Record<Fact, unknown>>,
   cooldowns: Record<string, number>
 ): TacticsRule | null {
-  const candidates = sortRules(
-    profile.config.rules.filter((rule) => rule.scope === "party" && rule.trigger === trigger && rule.enabled)
-  );
-
-  for (const rule of candidates) {
-    const cd = cooldowns[rule.id] ?? 0;
-    if (cd > 0) continue;
-    if (evaluateCondition(rule.when, facts)) {
-      return rule;
-    }
-  }
-  return null;
+  return selectPartyRuleWithTrace(profile, trigger, facts, cooldowns).rule;
 }
 
 export function selectCharacterRule(
@@ -212,18 +335,7 @@ export function selectCharacterRule(
   facts: Partial<Record<Fact, unknown>>,
   cooldowns: Record<string, number>
 ): TacticsRule | null {
-  const candidates = sortRules(
-    profile.config.rules.filter((rule) => rule.scope === "character" && rule.trigger === trigger && rule.enabled)
-  );
-
-  for (const rule of candidates) {
-    const cd = cooldowns[rule.id] ?? 0;
-    if (cd > 0) continue;
-    if (evaluateCondition(rule.when, facts)) {
-      return rule;
-    }
-  }
-  return null;
+  return selectCharacterRuleWithTrace(profile, trigger, facts, cooldowns).rule;
 }
 
 export function fallbackActionForRole(profile: TacticsProfile, role: Role): Action {
