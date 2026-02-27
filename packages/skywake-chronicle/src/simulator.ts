@@ -1,5 +1,6 @@
 import { DUNGEONS, getDungeonContentById, getItemContentById, getQuestContentById } from "./content";
 import { DropEntry, DungeonContent, NodeContent } from "./content-pack";
+import { labelAction, labelReason, labelReasonUnknown, labelRunStatusUnknown } from "./i18n";
 import {
   DungeonDefinition,
   EstimateResult,
@@ -23,6 +24,10 @@ import {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function getNow(): number {
@@ -321,6 +326,15 @@ interface QuestRewardResult {
   itemCount: number;
 }
 
+interface QuestUpdateResult {
+  id: string;
+  title: string;
+  progressFloor: number;
+  targetFloor: number;
+  stableFloor: number;
+  status: "active" | "completed";
+}
+
 function rollNodeDrop(rng: () => number, node: NodeContent): NodeDropResult | null {
   const selected = pickWeightedDrop(rng, node.rewards);
   if (!selected) return null;
@@ -366,6 +380,85 @@ function applyQuestRewards(save: SaveData, questIds: readonly string[]): QuestRe
       materials,
       itemId,
       itemCount: itemId ? itemCount : 0
+    });
+  });
+
+  return rewards;
+}
+
+function buildQuestUpdatesForLog(save: SaveData, dungeonId: string): QuestUpdateResult[] {
+  return save.quests
+    .filter((quest) => quest.dungeonId === dungeonId)
+    .map((quest) => ({
+      id: quest.id,
+      title: quest.title,
+      progressFloor: quest.progressFloor,
+      targetFloor: quest.targetFloor,
+      stableFloor: quest.stableFloor,
+      status: quest.status
+    }));
+}
+
+function parseQuestUpdatesPayload(payload: Record<string, unknown>): QuestUpdateResult[] {
+  const raw = payload.quest_updates;
+  if (!Array.isArray(raw)) return [];
+
+  const updates: QuestUpdateResult[] = [];
+  raw.forEach((item) => {
+    if (!isRecord(item) || typeof item.id !== "string") return;
+
+    const status = item.status === "completed" ? "completed" : "active";
+    const progressFloorRaw = typeof item.progress_floor === "number" ? item.progress_floor : item.floor;
+    const targetFloorRaw = item.target_floor;
+    const stableFloorRaw = item.stable_floor;
+    const progressFloor =
+      typeof progressFloorRaw === "number" && Number.isFinite(progressFloorRaw) ? Math.max(0, Math.floor(progressFloorRaw)) : 0;
+    const targetFloor =
+      typeof targetFloorRaw === "number" && Number.isFinite(targetFloorRaw) ? Math.max(0, Math.floor(targetFloorRaw)) : 0;
+    const stableFloor =
+      typeof stableFloorRaw === "number" && Number.isFinite(stableFloorRaw) ? Math.max(0, Math.floor(stableFloorRaw)) : 0;
+
+    updates.push({
+      id: item.id,
+      title: typeof item.title === "string" ? item.title : getQuestContentById(item.id)?.title ?? item.id,
+      progressFloor,
+      targetFloor,
+      stableFloor,
+      status
+    });
+  });
+
+  return updates;
+}
+
+function parseCompletedQuestIdsPayload(payload: Record<string, unknown>): string[] {
+  const raw = payload.completed_quests;
+  if (!Array.isArray(raw)) return [];
+
+  return raw.filter((item): item is string => typeof item === "string");
+}
+
+function parseQuestRewardsPayload(payload: Record<string, unknown>): QuestRewardResult[] {
+  const raw = payload.granted_rewards;
+  if (!Array.isArray(raw)) return [];
+
+  const rewards: QuestRewardResult[] = [];
+  raw.forEach((item) => {
+    if (!isRecord(item) || typeof item.questId !== "string") return;
+
+    const gold = typeof item.gold === "number" && Number.isFinite(item.gold) ? Math.max(0, Math.floor(item.gold)) : 0;
+    const materials =
+      typeof item.materials === "number" && Number.isFinite(item.materials) ? Math.max(0, Math.floor(item.materials)) : 0;
+    const itemId = typeof item.itemId === "string" ? item.itemId : null;
+    const itemCount =
+      typeof item.itemCount === "number" && Number.isFinite(item.itemCount) ? Math.max(0, Math.floor(item.itemCount)) : 0;
+
+    rewards.push({
+      questId: item.questId,
+      gold,
+      materials,
+      itemId,
+      itemCount
     });
   });
 
@@ -932,9 +1025,14 @@ export function simulateRun(save: SaveData, request: ExploreRequest): Simulation
     const completedQuestIds = updateQuestProgress(save, dungeon.id, floor, status);
     const grantedRewards = applyQuestRewards(save, completedQuestIds);
     pushEvent(floor, `F${floor}_QUEST`, "quest_progress", "success", {
-      quest_updates: save.quests
-        .filter((quest) => quest.dungeonId === dungeon.id)
-        .map((quest) => ({ id: quest.id, floor: quest.progressFloor, status: quest.status })),
+      quest_updates: buildQuestUpdatesForLog(save, dungeon.id).map((quest) => ({
+        id: quest.id,
+        title: quest.title,
+        progress_floor: quest.progressFloor,
+        target_floor: quest.targetFloor,
+        stable_floor: quest.stableFloor,
+        status: quest.status
+      })),
       completed_quests: completedQuestIds,
       granted_rewards: grantedRewards
     });
@@ -958,6 +1056,14 @@ export function simulateRun(save: SaveData, request: ExploreRequest): Simulation
   const rewardsAtEnd = applyQuestRewards(save, completedAtEnd);
   if (completedAtEnd.length > 0) {
     pushEvent(Math.max(1, reachedFloor), "RUN", "quest_progress", "success", {
+      quest_updates: buildQuestUpdatesForLog(save, dungeon.id).map((quest) => ({
+        id: quest.id,
+        title: quest.title,
+        progress_floor: quest.progressFloor,
+        target_floor: quest.targetFloor,
+        stable_floor: quest.stableFloor,
+        status: quest.status
+      })),
       completed_quests: completedAtEnd,
       granted_rewards: rewardsAtEnd
     });
@@ -1005,42 +1111,6 @@ export function simulateRun(save: SaveData, request: ExploreRequest): Simulation
 }
 
 function eventBrief(event: RunEvent): string {
-  const reasonLabel = (reason: unknown): string => {
-    if (reason === "missing_key_item") return "关键道具不足";
-    if (reason === "missing_required_aspect") return "环境应对不足";
-    if (reason === "retreat_hp_threshold") return "生存阈值触发撤退";
-    if (reason === "retreat_resource_threshold") return "资源阈值触发撤退";
-    if (reason === "time_window_missed") return "时段条件不匹配";
-    if (reason === "enemy_overwhelm") return "战斗压力过高";
-    if (reason === "path_blocked") return "路径阻断";
-    if (reason === "tactic_no_valid_action") return "战术动作无效";
-    return String(reason ?? "未知原因");
-  };
-  const runStatusLabel = (status: unknown): string => {
-    if (status === "running") return "进行中";
-    if (status === "completed") return "完成";
-    if (status === "retreated") return "撤退";
-    if (status === "failed") return "失败";
-    return String(status ?? "未知");
-  };
-  const actionLabel = (action: unknown): string => {
-    if (action === "attack_skill") return "技能攻击";
-    if (action === "defend_stance") return "防御架势";
-    if (action === "create_advantage") return "制造优势";
-    if (action === "overcome_obstacle") return "克服障碍";
-    if (action === "use_consumable") return "使用消耗品";
-    if (action === "save_resource_mode") return "资源回收";
-    if (action === "retreat_combat") return "战斗撤退";
-    if (action === "retreat_explore") return "探索撤退";
-    if (action === "use_key_item_slot") return "使用关键道具";
-    if (action === "basic_attack") return "普通攻击";
-    if (action === "wait") return "待机";
-    if (action === "swap_target") return "切换目标";
-    if (action === "mark_priority_target") return "标记重点目标";
-    if (action === "cleanse_ally") return "净化队友";
-    return String(action ?? "动作");
-  };
-
   switch (event.event_type) {
     case "run_start":
       return `出征开始，目标层数 ${String(event.payload.planned_floor ?? "?")}`;
@@ -1059,34 +1129,66 @@ function eventBrief(event: RunEvent): string {
     case "combat_start":
       return `遭遇战开始（敌方威胁 ${String(event.payload.enemy_hp ?? "?")}）`;
     case "combat_action":
-      return `${String(event.payload.actor_name ?? "队员")} 执行 ${actionLabel(event.payload.action)}`;
+      return `${String(event.payload.actor_name ?? "队员")} 执行 ${labelAction(event.payload.action)}`;
     case "combat_end":
       return event.outcome === "success" ? "战斗结束，敌方瓦解" : "队伍被压制，战斗失败";
     case "loot_drop":
       return `发现补给：${String(event.payload.item_id ?? "物资")}`;
     case "retreat_triggered":
-      return `触发撤退：${reasonLabel(event.payload.reason)}`;
+      return `触发撤退：${labelReasonUnknown(event.payload.reason)}`;
     case "quest_progress":
-      return "任务进度更新";
+      if (!isRecord(event.payload)) {
+        return "任务进度更新";
+      }
+
+      const updates = parseQuestUpdatesPayload(event.payload);
+      const completedQuestIds = parseCompletedQuestIdsPayload(event.payload);
+      const rewards = parseQuestRewardsPayload(event.payload);
+      const sections: string[] = [];
+
+      if (updates.length > 0) {
+        const progressText = updates
+          .map((quest) => {
+            const statusLabel = quest.status === "completed" ? "已完成" : "进行中";
+            const progressLabel = quest.targetFloor > 0 ? `${quest.progressFloor}/${quest.targetFloor}` : `F${quest.progressFloor}`;
+            return `${quest.title} ${progressLabel}（${statusLabel}）`;
+          })
+          .join("；");
+        sections.push(`进度：${progressText}`);
+      }
+
+      if (completedQuestIds.length > 0) {
+        const titles = completedQuestIds.map((questId) => getQuestContentById(questId)?.title ?? questId);
+        sections.push(`完成：${titles.join("、")}`);
+      }
+
+      if (rewards.length > 0) {
+        const rewardText = rewards
+          .map((reward) => {
+            const questTitle = getQuestContentById(reward.questId)?.title ?? reward.questId;
+            const parts: string[] = [];
+            if (reward.gold > 0) parts.push(`+${reward.gold}G`);
+            if (reward.materials > 0) parts.push(`+${reward.materials}M`);
+            if (reward.itemId && reward.itemCount > 0) {
+              const itemName = getItemContentById(reward.itemId)?.name ?? reward.itemId;
+              parts.push(`${itemName}x${reward.itemCount}`);
+            }
+            return `${questTitle}（${parts.join(" ") || "无"}）`;
+          })
+          .join("；");
+        sections.push(`奖励：${rewardText}`);
+      }
+
+      return sections.length > 0 ? `任务进度更新｜${sections.join("｜")}` : "任务进度更新";
     case "run_end":
-      return `出征结算：${runStatusLabel(event.payload.status)}`;
+      return `出征结算：${labelRunStatusUnknown(event.payload.status)}`;
     default:
       return "事件更新";
   }
 }
 
 export function toNarrative(event: RunEvent): string {
-  const reasonTags = event.reason_tags.map((tag) => {
-    if (tag === "missing_key_item") return "关键道具不足";
-    if (tag === "missing_required_aspect") return "环境应对不足";
-    if (tag === "retreat_hp_threshold") return "生存阈值触发撤退";
-    if (tag === "retreat_resource_threshold") return "资源阈值触发撤退";
-    if (tag === "time_window_missed") return "时段条件不匹配";
-    if (tag === "enemy_overwhelm") return "战斗压力过高";
-    if (tag === "path_blocked") return "路径阻断";
-    if (tag === "tactic_no_valid_action") return "战术动作无效";
-    return tag;
-  });
+  const reasonTags = event.reason_tags.map((tag) => labelReason(tag));
   const markers = reasonTags.length > 0 ? ` [${reasonTags.join("，")}]` : "";
   return `#${event.seq} F${event.floor} ${eventBrief(event)}${markers}`;
 }

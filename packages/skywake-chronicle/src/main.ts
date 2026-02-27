@@ -1,4 +1,15 @@
 import { DUNGEONS, INVENTORY_CATALOG, createPresetProfile, getItemContentById } from "./content";
+import {
+  labelAction,
+  labelEventType,
+  labelOutcome,
+  labelQuestStatus,
+  labelReason,
+  labelRole,
+  labelRunStatus,
+  labelRunStatusUnknown,
+  labelTacticStyle
+} from "./i18n";
 import { estimateRunMinutes, simulateRun, toNarrative } from "./simulator";
 import { exportSaveString, importSaveString, loadSave, persistSave, wipeSave } from "./storage";
 import { getActiveProfile, validateTacticsConfig } from "./tactics";
@@ -434,77 +445,31 @@ function currentWindowLabel(): "白昼" | "夜幕" {
 }
 
 function runStatusLabel(status: SaveData["runs"][number]["status"]): string {
-  if (status === "running") return "进行中";
-  if (status === "completed") return "完成";
-  if (status === "retreated") return "撤退";
-  if (status === "failed") return "失败";
-  return status;
+  return labelRunStatus(status);
 }
 
 function runStatusLabelFromUnknown(status: unknown): string {
-  if (status === "running" || status === "completed" || status === "retreated" || status === "failed") {
-    return runStatusLabel(status);
-  }
-  if (typeof status === "string" && status.length > 0) {
-    return status;
-  }
-  return "未知";
+  return labelRunStatusUnknown(status);
 }
 
 function questStatusLabel(status: SaveData["quests"][number]["status"]): string {
-  return status === "completed" ? "已完成" : "进行中";
+  return labelQuestStatus(status);
 }
 
 function roleLabel(role: SaveData["characters"][number]["role"]): string {
-  if (role === "tank") return "前卫";
-  if (role === "dps") return "输出";
-  if (role === "support") return "辅助";
-  return role;
+  return labelRole(role);
 }
 
 function eventTypeLabel(eventType: EventType): string {
-  const labels: Record<EventType, string> = {
-    run_start: "出征开始",
-    run_end: "出征结算",
-    floor_enter: "进入楼层",
-    floor_leave: "离开楼层",
-    node_enter: "进入节点",
-    node_exit: "离开节点",
-    combat_start: "战斗开始",
-    combat_action: "战斗行动",
-    combat_end: "战斗结束",
-    overcome_check: "机关判定",
-    loot_drop: "掉落获取",
-    retreat_triggered: "触发撤退",
-    gate_blocked: "机关阻断",
-    quest_progress: "任务进度"
-  };
-  return labels[eventType] ?? eventType;
+  return labelEventType(eventType);
 }
 
 function outcomeLabel(outcome: RunEvent["outcome"]): string {
-  if (outcome === "success") return "成功";
-  if (outcome === "partial") return "部分成功";
-  if (outcome === "failed") return "失败";
-  return outcome;
+  return labelOutcome(outcome);
 }
 
 function combatActionLabel(action: unknown): string {
-  if (action === "attack_skill") return "技能攻击";
-  if (action === "defend_stance") return "防御架势";
-  if (action === "create_advantage") return "制造优势";
-  if (action === "overcome_obstacle") return "克服障碍";
-  if (action === "use_consumable") return "使用消耗品";
-  if (action === "save_resource_mode") return "资源回收";
-  if (action === "retreat_combat") return "战斗撤退";
-  if (action === "retreat_explore") return "探索撤退";
-  if (action === "use_key_item_slot") return "使用关键道具";
-  if (action === "basic_attack") return "普通攻击";
-  if (action === "wait") return "待机";
-  if (action === "swap_target") return "切换目标";
-  if (action === "mark_priority_target") return "标记重点目标";
-  if (action === "cleanse_ally") return "净化队友";
-  return String(action ?? "动作");
+  return labelAction(action);
 }
 
 function requiredChapterForDungeon(dungeonId: string): number {
@@ -663,16 +628,11 @@ function getRunRecovery(run: SaveData["runs"][number] | null): RecoverySummary |
 }
 
 function styleLabel(style: TacticStyle): string {
-  if (style === "aggressive") return "好斗";
-  if (style === "cautious") return "谨慎";
-  return "均衡";
+  return labelTacticStyle(style);
 }
 
 function profileStyleLabel(style: SaveData["tacticsProfiles"][number]["style"]): string {
-  if (style === "custom") return "自定义";
-  if (style === "aggressive") return "好斗";
-  if (style === "cautious") return "谨慎";
-  return "均衡";
+  return labelTacticStyle(style);
 }
 
 function resolvePrimaryReason(runTags: readonly ReasonTag[]): ReasonTag {
@@ -683,15 +643,7 @@ function resolvePrimaryReason(runTags: readonly ReasonTag[]): ReasonTag {
 }
 
 function reasonText(reason: ReasonTag): string {
-  if (reason === "missing_key_item") return "关键道具不足";
-  if (reason === "missing_required_aspect") return "环境应对不足";
-  if (reason === "time_window_missed") return "时段条件不匹配";
-  if (reason === "enemy_overwhelm") return "战斗压力过高";
-  if (reason === "retreat_hp_threshold") return "生存阈值触发撤退";
-  if (reason === "retreat_resource_threshold") return "资源阈值触发撤退";
-  if (reason === "path_blocked") return "路径阻断";
-  if (reason === "tactic_no_valid_action") return "战术动作无效";
-  return reason;
+  return labelReason(reason);
 }
 
 function recommendStyleByReason(reason: ReasonTag): TacticStyle {
@@ -1626,7 +1578,7 @@ function renderPartyTab(): string {
         <p class="hint">当前配置：${escapeHtml(profile.name)}（${profileStyleLabel(profile.style)}）</p>
 
         <div class="touch-list compact">
-          <div class="touch-item"><span>默认动作</span><strong>前卫=${profile.config.fallback_by_role.tank}, 输出=${profile.config.fallback_by_role.dps}, 辅助=${profile.config.fallback_by_role.support}</strong></div>
+          <div class="touch-item"><span>默认动作</span><strong>前卫=${combatActionLabel(profile.config.fallback_by_role.tank)}, 输出=${combatActionLabel(profile.config.fallback_by_role.dps)}, 辅助=${combatActionLabel(profile.config.fallback_by_role.support)}</strong></div>
           <div class="touch-item"><span>规则数量</span><strong>${profile.config.rules.length}</strong></div>
           <div class="touch-item"><span>更新时间</span><strong>${new Date(profile.updatedAt).toLocaleString()}</strong></div>
         </div>
