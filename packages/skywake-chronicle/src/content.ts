@@ -670,6 +670,33 @@ function resolveQuestTargetFloor(quest: QuestContent): number {
     : 1;
 }
 
+function questTypeLabel(questType: QuestContent["quest_type"]): string {
+  if (questType === "main") return "主线委托";
+  if (questType === "challenge") return "挑战委托";
+  return "支线委托";
+}
+
+function buildQuestNarrativeDescription(quest: QuestContent, dungeonId: string, targetFloor: number): string {
+  const dungeonName = DUNGEONS.find((dungeon) => dungeon.id === dungeonId)?.name ?? dungeonId;
+  const requiredItemId = typeof quest.objective.required_item_id === "string" ? quest.objective.required_item_id : "";
+  const requiredItemName = requiredItemId.length > 0
+    ? CONTENT_PACK.items.find((item) => item.id === requiredItemId)?.name ?? requiredItemId
+    : "";
+
+  const opening = `【${questTypeLabel(quest.quest_type)} / 第${quest.chapter}章】码头传令灯在夜色里连闪三次：${dungeonName} 请求紧急勘验。`;
+  const mission = `你将率队下探至第 ${targetFloor} 层，把沿途异动写进航海日志后返航。`;
+  const gateHint =
+    requiredItemName.length > 0
+      ? `记录员压低声音补了一句：若没带上「${requiredItemName}」，那道机关门只会让你原路折返。`
+      : "";
+  const closing =
+    quest.quest_type === "main"
+      ? "这份记录将决定下一条航线是否向你开放。"
+      : "这笔委托不改主线走向，但会让下一次远征多一分把握。";
+
+  return [opening, mission, gateHint, closing].filter((text) => text.length > 0).join(" ");
+}
+
 function createQuestStateFromContent(quest: QuestContent, defaultDungeon: string, chapterUnlocked: number): QuestState {
   const dungeonId = resolveQuestDungeonId(quest, defaultDungeon);
   const targetFloor = resolveQuestTargetFloor(quest);
@@ -678,7 +705,7 @@ function createQuestStateFromContent(quest: QuestContent, defaultDungeon: string
   return {
     id: quest.id,
     title: quest.title,
-    description: `${quest.title}（${quest.quest_type}）`,
+    description: buildQuestNarrativeDescription(quest, dungeonId, targetFloor),
     dungeonId,
     targetFloor,
     status: unlocked ? "active" : "locked",
