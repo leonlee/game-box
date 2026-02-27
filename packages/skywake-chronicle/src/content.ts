@@ -335,6 +335,20 @@ const BASE_CONTENT_PACK: ContentPack = {
         4,
         "night"
       )
+    },
+    {
+      id: "aether_skybridge",
+      name: "天穹桥域",
+      recommended_level: 5,
+      floor_count: 14,
+      seed_scope: "save_local",
+      floors: createDungeonFloors(
+        "skybridge",
+        14,
+        ["逆风碎岛", "失衡索道", "辉雾潮汐", "星锚回廊"],
+        5,
+        "day"
+      )
     }
   ],
   quests: [
@@ -353,6 +367,38 @@ const BASE_CONTENT_PACK: ContentPack = {
       title: "风暴锭塔锚点",
       objective: { dungeon_id: "storm_spindle", target_floor: 5, required_item_id: "phase_calibrator" },
       reward: { item_id: "storm_anchor", count: 1, gold: 220 }
+    },
+    {
+      id: "quest_spindle_core",
+      quest_type: "main",
+      chapter: 2,
+      title: "锭塔核心校相",
+      objective: { dungeon_id: "storm_spindle", target_floor: 8, required_item_id: "storm_anchor" },
+      reward: { gold: 320, materials: 120 }
+    },
+    {
+      id: "quest_turbulence_relief",
+      quest_type: "side",
+      chapter: 2,
+      title: "湍流伤员撤离",
+      objective: { dungeon_id: "storm_spindle", target_floor: 6 },
+      reward: { item_id: "remedy_kit", count: 2, gold: 140 }
+    },
+    {
+      id: "quest_phase_compass",
+      quest_type: "main",
+      chapter: 3,
+      title: "相位罗盘复位",
+      objective: { dungeon_id: "aether_skybridge", target_floor: 8, required_item_id: "storm_anchor" },
+      reward: { gold: 380, materials: 180 }
+    },
+    {
+      id: "quest_sky_bridge_convoy",
+      quest_type: "side",
+      chapter: 3,
+      title: "空桥护航",
+      objective: { dungeon_id: "aether_skybridge", target_floor: 6, required_item_id: "phase_calibrator" },
+      reward: { item_id: "smoke_bomb", count: 2, gold: 200 }
     }
   ]
 };
@@ -376,6 +422,13 @@ const DUNGEON_RUNTIME_META: Record<
     floorBaseMin: 4,
     nodeEventMin: 1.8,
     favoredTimeWindow: "night"
+  },
+  aether_skybridge: {
+    flavor: "断裂空桥贯穿以太雾潮，护航与抢修任务并行发生。",
+    threatScale: 1.45,
+    floorBaseMin: 5,
+    nodeEventMin: 2.1,
+    favoredTimeWindow: "day"
   }
 };
 

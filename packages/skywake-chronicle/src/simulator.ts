@@ -313,6 +313,75 @@ function gateModeFromNode(node: NodeContent | undefined): "gate" | "environment"
   return "none";
 }
 
+const SKYBRIDGE_CONVOY_DELAY_TAG: ReasonTag = "ext.skybridge_convoy_delay";
+const SKYBRIDGE_FALL_RISK_TAG: ReasonTag = "ext.skybridge_fall_risk";
+const SKYBRIDGE_PHASE_STORM_TAG: ReasonTag = "ext.skybridge_phase_storm";
+const SKYBRIDGE_ANCHOR_FAILURE_TAG: ReasonTag = "ext.skybridge_anchor_failure";
+
+function isSkybridgeDungeon(dungeonId: string): boolean {
+  return dungeonId === "aether_skybridge";
+}
+
+function skybridgeEscortPassChance(avgLevel: number, action: string | undefined): number {
+  const actionBonus =
+    action === "overcome_obstacle"
+      ? 0.3
+      : action === "create_advantage"
+        ? 0.22
+        : action === "defend_stance"
+          ? 0.12
+          : 0;
+  return clamp(0.4 + avgLevel * 0.024 + actionBonus, 0.15, 0.93);
+}
+
+function skybridgeFallRiskChance(floor: number, action: string | undefined): number {
+  const mitigation =
+    action === "overcome_obstacle"
+      ? 0.12
+      : action === "create_advantage"
+        ? 0.08
+        : action === "defend_stance"
+          ? 0.06
+          : 0;
+  return clamp(0.18 + floor * 0.018 - mitigation, 0.05, 0.55);
+}
+
+function skybridgeBossStabilizeChance(
+  avgLevel: number,
+  turn: number,
+  stormCharge: number,
+  action: string | undefined,
+  hasAnchor: boolean
+): number {
+  const actionBonus =
+    action === "overcome_obstacle"
+      ? 0.24
+      : action === "create_advantage"
+        ? 0.18
+        : action === "defend_stance"
+          ? 0.1
+          : action === "use_key_item_slot"
+            ? 0.08
+            : 0;
+  const anchorBonus = hasAnchor ? 0.12 : -0.1;
+  const turnPenalty = turn >= 6 ? 0.1 : turn >= 4 ? 0.05 : 0;
+  const chargePenalty = stormCharge * 0.03;
+  return clamp(0.58 + avgLevel * 0.016 + actionBonus + anchorBonus - turnPenalty - chargePenalty, 0.08, 0.95);
+}
+
+function skybridgeStormDamage(floor: number, turn: number, action: string | undefined, rng: () => number): number {
+  const raw = Math.round(14 + floor * 1.1 + turn * 2.6 + rng() * 7);
+  const mitigation =
+    action === "defend_stance"
+      ? 0.62
+      : action === "create_advantage" || action === "overcome_obstacle"
+        ? 0.78
+        : action === "use_consumable"
+          ? 0.86
+          : 1;
+  return Math.max(6, Math.round(raw * mitigation));
+}
+
 interface NodeDropResult {
   itemId: string;
   quantity: number;
@@ -776,9 +845,12 @@ export function simulateRun(save: SaveData, request: ExploreRequest): Simulation
     const combatOpposition = combatNode?.opposition_level ?? Math.min(20, 4 + floor);
     const elite = combatOpposition >= 10 || floor % 5 === 0;
     const isBoss = floor === dungeon.maxFloor;
+    const isSkybridgeBoss = isBoss && isSkybridgeDungeon(dungeon.id);
     let enemyHp = Math.round(
       (28 + floor * 9 + combatOpposition * 2) * dungeon.threatScale * (elite ? 1.35 : 1) * (isBoss ? 1.25 : 1)
     );
+    let stormCharge = 0;
+    let stormBurstCount = 0;
 
     pushEvent(floor, combatNodeId, "node_enter", "success", {
       node_type: "combat",
@@ -789,6 +861,7 @@ export function simulateRun(save: SaveData, request: ExploreRequest): Simulation
       enemy_hp: enemyHp,
       elite,
       boss: isBoss,
+      phase_storm: isSkybridgeBoss,
       scene_aspect: combatScene
     });
 
@@ -823,6 +896,100 @@ export function simulateRun(save: SaveData, request: ExploreRequest): Simulation
           [tag]
         );
         break;
+      }
+
+      if (isSkybridgeBoss && turn >= 2) {
+        stormCharge += turn >= 6 ? 2 : 1;
+        const stormAction = partyRule?.then.action;
+        const hasAnchor = (save.inventory.storm_anchor ?? 0) > 0;
+        const passChance = skybridgeBossStabilizeChance(averageLevel(save), turn, stormCharge, stormAction, hasAnchor);
+        const roll = rng();
+
+        if (roll > passChance) {
+          stormBurstCount += 1;
+          const blastDamage = skybridgeStormDamage(floor, turn, stormAction, rng);
+          const impacted = save.characters
+            .filter((character) => character.stressPhysical > 0)
+            .map((character) => {
+              const roleFactor = character.role === "tank" ? 0.85 : character.role === "support" ? 1.05 : 1;
+              const stressLoss = Math.max(5, Math.round(blastDamage * roleFactor * (0.88 + rng() * 0.28)));
+              character.stressPhysical = clamp(character.stressPhysical - stressLoss, 0, character.maxStress);
+              character.stressMental = clamp(character.stressMental - Math.round(stressLoss * 0.45), 0, character.maxStress);
+              if (character.stressPhysical <= 0 && character.consequenceLight.length === 0) {
+                character.consequenceLight = "轻度后果：相位灼伤";
+              }
+              return {
+                uid: character.uid,
+                name: character.name,
+                stress_loss: stressLoss,
+                remaining_stress: character.stressPhysical
+              };
+            });
+
+          const reasonTags: ReasonTag[] = [SKYBRIDGE_PHASE_STORM_TAG];
+          if (!hasAnchor) {
+            reasonTags.push(SKYBRIDGE_ANCHOR_FAILURE_TAG);
+          }
+
+          const wiped = !anyAlive(save);
+          pushEvent(
+            floor,
+            combatNodeId,
+            "overcome_check",
+            wiped ? "failed" : "partial",
+            {
+              check_type: "skybridge_phase_storm",
+              turn,
+              storm_charge: stormCharge,
+              storm_burst_count: stormBurstCount,
+              pass_chance: Number(passChance.toFixed(2)),
+              roll: Number(roll.toFixed(2)),
+              has_anchor: hasAnchor,
+              action: stormAction ?? "none",
+              blast_damage: blastDamage,
+              impacted,
+              rule_id: partyRule?.id ?? "none",
+              rule_eval_trace: partyDecision.traces
+            },
+            reasonTags
+          );
+
+          if (wiped) {
+            status = "failed";
+            pushEvent(
+              floor,
+              combatNodeId,
+              "combat_end",
+              "failed",
+              {
+                turn,
+                reason: hasAnchor ? SKYBRIDGE_PHASE_STORM_TAG : SKYBRIDGE_ANCHOR_FAILURE_TAG
+              },
+              reasonTags
+            );
+            break;
+          }
+        } else {
+          let consumedAnchor = false;
+          if (hasAnchor && stormAction === "use_key_item_slot" && (save.inventory.storm_anchor ?? 0) > 0) {
+            save.inventory.storm_anchor = Math.max(0, (save.inventory.storm_anchor ?? 0) - 1);
+            consumedAnchor = true;
+            stormCharge = Math.max(0, stormCharge - 2);
+          }
+
+          pushEvent(floor, combatNodeId, "overcome_check", "success", {
+            check_type: "skybridge_phase_storm",
+            turn,
+            storm_charge: stormCharge,
+            pass_chance: Number(passChance.toFixed(2)),
+            roll: Number(roll.toFixed(2)),
+            has_anchor: hasAnchor,
+            action: stormAction ?? "none",
+            consumed_anchor: consumedAnchor,
+            rule_id: partyRule?.id ?? "none",
+            rule_eval_trace: partyDecision.traces
+          });
+        }
       }
 
       let advantageStacks = 0;
@@ -1000,16 +1167,143 @@ export function simulateRun(save: SaveData, request: ExploreRequest): Simulation
     const extraNodes = floorNodes.filter((node) => node.id !== gateNode?.id && node.id !== combatNode?.id);
     for (const node of extraNodes) {
       const sceneAspect = pickSceneAspectFromNodeOrPool(rng, node, dungeon);
+      let nodeOutcome: RunEvent["outcome"] = "success";
       pushEvent(floor, node.id, "node_enter", "success", {
         node_type: node.node_type,
         scene_aspect: sceneAspect
       });
 
-      awardNodeDrop(floor, node);
+      if (isSkybridgeDungeon(dungeon.id) && node.node_type === "event") {
+        const partyFacts = buildPartyFacts(save, "event", sceneAspect, false, 0, 0, false);
+        const partyDecision = selectPartyRuleWithTrace(profile, "on_node_enter", partyFacts, cooldowns);
+        const partyRule = partyDecision.rule;
+        if (partyRule) activateRuleCooldown(cooldowns, partyRule);
+        const action = partyRule?.then.action;
 
-      pushEvent(floor, node.id, "node_exit", "success", {
-        node_type: node.node_type
-      });
+        const escortPassChance = skybridgeEscortPassChance(averageLevel(save), action);
+        const escortRoll = rng();
+        if (escortRoll <= escortPassChance) {
+          const bonusMaterials = Math.max(4, Math.round(3 + floor * 0.9));
+          rawMaterials += bonusMaterials;
+          pushEvent(floor, node.id, "overcome_check", "success", {
+            check_type: "skybridge_convoy",
+            scene_aspect: sceneAspect,
+            pass_chance: Number(escortPassChance.toFixed(2)),
+            roll: Number(escortRoll.toFixed(2)),
+            rule_id: partyRule?.id ?? "none",
+            rule_eval_trace: partyDecision.traces,
+            bonus_materials: bonusMaterials
+          });
+        } else {
+          const penaltyGold = Math.max(6, Math.round(8 + floor * 2.4 + rng() * 5));
+          rawGold = Math.max(0, rawGold - penaltyGold);
+          nodeOutcome = "partial";
+          pushEvent(
+            floor,
+            node.id,
+            "overcome_check",
+            "partial",
+            {
+              check_type: "skybridge_convoy",
+              scene_aspect: sceneAspect,
+              pass_chance: Number(escortPassChance.toFixed(2)),
+              roll: Number(escortRoll.toFixed(2)),
+              penalty_gold: penaltyGold,
+              rule_id: partyRule?.id ?? "none",
+              rule_eval_trace: partyDecision.traces
+            },
+            [SKYBRIDGE_CONVOY_DELAY_TAG]
+          );
+        }
+
+        if (status === "running" && floor >= 7) {
+          const fallRiskChance = skybridgeFallRiskChance(floor, action);
+          const fallRoll = rng();
+          if (fallRoll < fallRiskChance) {
+            const targetIndex = chooseEnemyTarget(rng, save);
+            const target = save.characters[targetIndex];
+            const stressLoss = Math.max(8, Math.round(6 + floor * 1.2 + rng() * 6));
+
+            target.stressPhysical = clamp(target.stressPhysical - stressLoss, 0, target.maxStress);
+            target.stressMental = clamp(target.stressMental - Math.round(stressLoss * 0.45), 0, target.maxStress);
+            if (target.stressPhysical <= 0 && target.consequenceLight.length === 0) {
+              target.consequenceLight = "轻度后果：坠流挫伤";
+            }
+
+            const wiped = !anyAlive(save);
+            if (wiped) {
+              status = "failed";
+              nodeOutcome = "failed";
+            } else if (nodeOutcome === "success") {
+              nodeOutcome = "partial";
+            }
+
+            pushEvent(
+              floor,
+              node.id,
+              "overcome_check",
+              wiped ? "failed" : "partial",
+              {
+                check_type: "skybridge_fall_risk",
+                scene_aspect: sceneAspect,
+                fall_risk: Number(fallRiskChance.toFixed(2)),
+                roll: Number(fallRoll.toFixed(2)),
+                target_uid: target.uid,
+                target_name: target.name,
+                stress_loss: stressLoss,
+                remaining_stress: target.stressPhysical,
+                rule_id: partyRule?.id ?? "none",
+                rule_eval_trace: partyDecision.traces
+              },
+              [SKYBRIDGE_FALL_RISK_TAG]
+            );
+
+            if (wiped) {
+              pushEvent(
+                floor,
+                node.id,
+                "retreat_triggered",
+                "failed",
+                {
+                  reason: SKYBRIDGE_FALL_RISK_TAG,
+                  rule_id: partyRule?.id ?? "none",
+                  rule_eval_trace: partyDecision.traces
+                },
+                [SKYBRIDGE_FALL_RISK_TAG]
+              );
+            }
+          } else {
+            pushEvent(floor, node.id, "overcome_check", "success", {
+              check_type: "skybridge_fall_risk",
+              scene_aspect: sceneAspect,
+              fall_risk: Number(fallRiskChance.toFixed(2)),
+              roll: Number(fallRoll.toFixed(2)),
+              rule_id: partyRule?.id ?? "none",
+              rule_eval_trace: partyDecision.traces
+            });
+          }
+        }
+
+        if (status === "running") {
+          awardNodeDrop(floor, node);
+        }
+      } else {
+        awardNodeDrop(floor, node);
+      }
+
+      pushEvent(
+        floor,
+        node.id,
+        "node_exit",
+        status === "running" ? nodeOutcome : status === "failed" ? "failed" : "partial",
+        {
+          node_type: node.node_type
+        }
+      );
+
+      if (status !== "running") {
+        break;
+      }
     }
 
     const floorGold = Math.round((22 + floor * 6) * (elite ? 1.4 : 1));
@@ -1125,6 +1419,24 @@ function eventBrief(event: RunEvent): string {
     case "gate_blocked":
       return `机关未响应，缺少 ${String(event.payload.missing_key ?? "关键道具")}`;
     case "overcome_check":
+      if (isRecord(event.payload)) {
+        const checkType = String(event.payload.check_type ?? "");
+        if (checkType === "skybridge_convoy") {
+          if (event.outcome === "success") return "护航校核成功，补给队列保持阵型";
+          if (event.outcome === "partial") return "护航校核波动，补给发生延误";
+          return "护航校核失败，队列中断";
+        }
+        if (checkType === "skybridge_fall_risk") {
+          if (event.outcome === "success") return "通过侧风带，队形稳定";
+          if (event.outcome === "partial") return `乱流冲击造成坠落伤害：${String(event.payload.target_name ?? "队员")}`;
+          return "乱流坠落导致队伍失能";
+        }
+        if (checkType === "skybridge_phase_storm") {
+          if (event.outcome === "success") return "相位风暴被压制，队伍稳住战线";
+          if (event.outcome === "partial") return "相位风暴爆发，队伍承受群体冲击";
+          return "相位风暴失控，队伍失去战斗能力";
+        }
+      }
       return event.outcome === "success" ? "机关处理成功" : "机关处理失败，被迫折返";
     case "combat_start":
       return `遭遇战开始（敌方威胁 ${String(event.payload.enemy_hp ?? "?")}）`;

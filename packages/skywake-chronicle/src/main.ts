@@ -52,7 +52,8 @@ const REFORGE_RECIPE = {
 const FACILITY_MAX_LEVEL = 3;
 const DUNGEON_CHAPTER_REQUIREMENTS: Record<string, number> = {
   abyssal_archive: 1,
-  storm_spindle: 2
+  storm_spindle: 2,
+  aether_skybridge: 3
 };
 const FACILITY_UPGRADE_COSTS = {
   infirmary: [
@@ -72,6 +73,14 @@ const CHAPTER_UNLOCK_PLANS = [
     requireInfirmary: 2,
     requireWorkshop: 2,
     requireQuestId: "quest_archive_probe"
+  },
+  {
+    chapter: 3,
+    gold: 420,
+    materials: 240,
+    requireInfirmary: 3,
+    requireWorkshop: 3,
+    requireQuestId: "quest_spindle_core"
   }
 ] as const;
 const TIME_SCALE_OPTIONS: readonly ExpeditionTimeScale[] = [1, 4, 10] as const;
@@ -174,6 +183,29 @@ interface WorkshopRecipeView {
   materialCost: number;
   outputCount: number;
   bonusText: string;
+}
+
+interface SkybridgeStormStep {
+  seq: number;
+  floor: number;
+  outcome: RunEvent["outcome"];
+  turn: number;
+  stormCharge: number;
+  burstCount: number;
+  passChance: number | null;
+  roll: number | null;
+  hasAnchor: boolean | null;
+  consumedAnchor: boolean;
+  reasonTags: ReasonTag[];
+}
+
+interface SkybridgeStormTimeline {
+  steps: SkybridgeStormStep[];
+  maxCharge: number;
+  burstSteps: number;
+  highRiskSteps: number;
+  anchorConsumed: number;
+  anchorMissing: number;
 }
 
 function runtimeNow(): number {
@@ -433,6 +465,26 @@ function escapeHtml(value: string): string {
     .replace(/'/g, "&#39;");
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function asFiniteNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim().length > 0) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
+function asBoolean(value: unknown): boolean | null {
+  if (typeof value === "boolean") return value;
+  if (value === 1 || value === "1" || value === "true") return true;
+  if (value === 0 || value === "0" || value === "false") return false;
+  return null;
+}
+
 function asRecoverySummary(raw: unknown): RecoverySummary | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const record = raw as Record<string, unknown>;
@@ -444,6 +496,68 @@ function asRecoverySummary(raw: unknown): RecoverySummary | null {
 
   if (stressRecovered <= 0 && mentalRecovered <= 0 && resourceRecovered <= 0 && consequencesCleared <= 0) return null;
   return { stressRecovered, mentalRecovered, resourceRecovered, consequencesCleared };
+}
+
+function parseSkybridgeStormStep(event: RunEvent): SkybridgeStormStep | null {
+  if (event.event_type !== "overcome_check") return null;
+  if (!isRecord(event.payload)) return null;
+  if (event.payload.check_type !== "skybridge_phase_storm") return null;
+
+  const turn = Math.max(0, Math.floor(asFiniteNumber(event.payload.turn) ?? 0));
+  const stormCharge = Math.max(0, Math.floor(asFiniteNumber(event.payload.storm_charge) ?? 0));
+  const burstCount = Math.max(0, Math.floor(asFiniteNumber(event.payload.storm_burst_count) ?? 0));
+  const passChance = asFiniteNumber(event.payload.pass_chance);
+  const roll = asFiniteNumber(event.payload.roll);
+  const hasAnchor = asBoolean(event.payload.has_anchor);
+  const consumedAnchor = asBoolean(event.payload.consumed_anchor) ?? false;
+
+  return {
+    seq: event.seq,
+    floor: event.floor,
+    outcome: event.outcome,
+    turn,
+    stormCharge,
+    burstCount,
+    passChance,
+    roll,
+    hasAnchor,
+    consumedAnchor,
+    reasonTags: event.reason_tags
+  };
+}
+
+function buildSkybridgeStormTimeline(run: SaveData["runs"][number] | null): SkybridgeStormTimeline | null {
+  if (!run || run.dungeonId !== "aether_skybridge") return null;
+
+  const steps = run.events
+    .map((event) => parseSkybridgeStormStep(event))
+    .filter((step): step is SkybridgeStormStep => step !== null);
+
+  if (steps.length === 0) {
+    return {
+      steps: [],
+      maxCharge: 0,
+      burstSteps: 0,
+      highRiskSteps: 0,
+      anchorConsumed: 0,
+      anchorMissing: 0
+    };
+  }
+
+  const maxCharge = steps.reduce((max, step) => Math.max(max, step.stormCharge), 0);
+  const burstSteps = steps.filter((step) => step.outcome !== "success").length;
+  const highRiskSteps = steps.filter((step) => step.stormCharge >= 6 || step.outcome !== "success").length;
+  const anchorConsumed = steps.filter((step) => step.consumedAnchor).length;
+  const anchorMissing = steps.filter((step) => step.hasAnchor === false).length;
+
+  return {
+    steps,
+    maxCharge,
+    burstSteps,
+    highRiskSteps,
+    anchorConsumed,
+    anchorMissing
+  };
 }
 
 function currentWindowLabel(): "白昼" | "夜幕" {
@@ -530,6 +644,14 @@ function getNextChapterUnlockPlan() {
   return CHAPTER_UNLOCK_PLANS.find((plan) => plan.chapter === save.meta.chapterUnlocked + 1) ?? null;
 }
 
+function chapterRequirementQuestTitle(questId: string): string {
+  return (
+    getQuestContentById(questId)?.title ??
+    save.quests.find((quest) => quest.id === questId)?.title ??
+    questId
+  );
+}
+
 function getChapterUnlockIssues(
   plan: NonNullable<ReturnType<typeof getNextChapterUnlockPlan>>
 ): string[] {
@@ -543,7 +665,7 @@ function getChapterUnlockIssues(
   }
   const quest = save.quests.find((item) => item.id === plan.requireQuestId);
   if (!quest || quest.status !== "completed") {
-    issues.push("需完成主线委托「渊书库校验」");
+    issues.push(`需完成委托「${chapterRequirementQuestTitle(plan.requireQuestId)}」`);
   }
 
   if (save.gold < plan.gold) {
@@ -615,6 +737,16 @@ function summaryLine(event: RunEvent): string {
     return `${String(event.payload.actor_name ?? "队员")} · ${combatActionLabel(event.payload.action)} · ${outcomeLabel(event.outcome)}`;
   }
   if (event.event_type === "overcome_check") {
+    const checkType = String(event.payload.check_type ?? "");
+    if (checkType === "skybridge_convoy") {
+      return `空桥护航校核 · ${outcomeLabel(event.outcome)}`;
+    }
+    if (checkType === "skybridge_fall_risk") {
+      return `空桥坠落风险判定 · ${outcomeLabel(event.outcome)}`;
+    }
+    if (checkType === "skybridge_phase_storm") {
+      return `相位风暴压制判定 · ${outcomeLabel(event.outcome)}`;
+    }
     return `机关处理 · ${outcomeLabel(event.outcome)}`;
   }
   if (event.event_type === "run_end") {
@@ -656,6 +788,22 @@ function reasonText(reason: ReasonTag): string {
 function recommendStyleByReason(reason: ReasonTag): TacticStyle {
   if (reason === "enemy_overwhelm" || reason === "retreat_hp_threshold") {
     return "cautious";
+  }
+
+  if (reason === "ext.skybridge_fall_risk") {
+    return "cautious";
+  }
+
+  if (reason === "ext.skybridge_phase_storm") {
+    return "cautious";
+  }
+
+  if (reason === "ext.skybridge_convoy_delay") {
+    return "balanced";
+  }
+
+  if (reason === "ext.skybridge_anchor_failure") {
+    return "balanced";
   }
 
   if (reason === "retreat_resource_threshold" || reason === "tactic_no_valid_action") {
@@ -788,6 +936,52 @@ function getRunDiagnosis(run: SaveData["runs"][number] | null, dungeonId: string
         action: "apply-diagnosis-preset",
         value: "balanced",
         label: "切换到均衡模板（机关优先）"
+      });
+    }
+
+    if (reason === "ext.skybridge_convoy_delay") {
+      notes.push("护航队列在乱流中失稳，建议优先携带 Create Advantage/Overcome 动作并降低目标层。");
+      pushDiagnosisAction(actions, {
+        key: "preset-balanced-skybridge",
+        action: "apply-diagnosis-preset",
+        value: "balanced",
+        label: "套用均衡模板（护航）"
+      });
+    }
+
+    if (reason === "ext.skybridge_fall_risk") {
+      notes.push("空桥高层坠落风险偏高，建议切换谨慎模板并补充恢复道具再尝试。");
+      pushDiagnosisAction(actions, {
+        key: "preset-cautious-skybridge",
+        action: "apply-diagnosis-preset",
+        value: "cautious",
+        label: "套用谨慎模板（防坠）"
+      });
+      pushDiagnosisAction(actions, {
+        key: "buy-remedy-kit-skybridge",
+        action: "buy-item",
+        value: "remedy_kit",
+        label: "补充净化包"
+      });
+    }
+
+    if (reason === "ext.skybridge_phase_storm") {
+      notes.push("首领阶段会触发相位风暴，建议提高防御/优势动作占比，避免在高压回合硬拼输出。");
+      pushDiagnosisAction(actions, {
+        key: "preset-cautious-phase-storm",
+        action: "apply-diagnosis-preset",
+        value: "cautious",
+        label: "套用谨慎模板（风暴）"
+      });
+    }
+
+    if (reason === "ext.skybridge_anchor_failure") {
+      notes.push("风暴锚片不足会放大首领阶段风险。先补充锚片库存，再挑战天穹桥域高层。");
+      pushDiagnosisAction(actions, {
+        key: "preset-balanced-anchor",
+        action: "apply-diagnosis-preset",
+        value: "balanced",
+        label: "套用均衡模板（锚片）"
       });
     }
   });
@@ -939,8 +1133,10 @@ function buildReplayMoments(run: SaveData["runs"][number] | null): ReplayMoment[
 
   const moments: ReplayMoment[] = [];
   run.events.forEach((event) => {
+    const isSkybridgeStormStep = parseSkybridgeStormStep(event) !== null;
     const shouldInclude =
       markers.has(event.event_type) ||
+      isSkybridgeStormStep ||
       event.outcome === "failed" ||
       (event.outcome === "partial" && event.event_type !== "combat_action");
     if (!shouldInclude) return;
@@ -1208,6 +1404,7 @@ function renderExpeditionTab(): string {
   const activeReplay = replayMoments[replayIndex] ?? null;
   const analytics = buildRunAnalytics(dungeon.id);
   const allReasons = run ? Array.from(new Set(run.events.flatMap((event) => event.reason_tags))).sort() : [];
+  const stormTimeline = buildSkybridgeStormTimeline(run);
 
   const filteredEvents = run
     ? run.events.filter((event) => {
@@ -1280,11 +1477,75 @@ function renderExpeditionTab(): string {
     })
     .join("");
 
+  const formatStormPercent = (value: number | null): string => {
+    if (value == null) return "--";
+    const normalized = value <= 1 ? value * 100 : value;
+    return `${Math.round(normalized)}%`;
+  };
+
+  const stormPanel =
+    stormTimeline == null
+      ? ""
+      : stormTimeline.steps.length === 0
+        ? `<article class="panel">
+            <h3>Boss 风暴阶段监控</h3>
+            <p class="hint">${
+              run?.status === "running"
+                ? "当前记录尚未进入顶层风暴阶段。推进至天穹桥域顶层后会出现蓄能判定。"
+                : "本次记录未触发相位风暴阶段判定。"
+            }</p>
+          </article>`
+        : (() => {
+            const lastStep = stormTimeline.steps[stormTimeline.steps.length - 1] ?? null;
+            const maxChargeRate = Math.min(100, Math.max(0, stormTimeline.maxCharge * 12.5));
+            const dangerHint =
+              run?.status === "running"
+                ? lastStep && lastStep.stormCharge >= 6
+                  ? "已进入高压蓄能区，优先防御/优势动作并准备锚片介入。"
+                  : "当前未达高压阈值，建议在蓄能升至 6 前完成防线准备。"
+                : "可重点复盘高压回合（蓄能>=6 或爆发回合）并调整战术。";
+            const stepsHtml = stormTimeline.steps
+              .map((step) => {
+                const chargeRate = Math.min(100, Math.max(6, step.stormCharge * 12.5));
+                const stateLabel =
+                  step.outcome === "success" ? "压制成功" : step.outcome === "partial" ? "风暴爆发" : "风暴失控";
+                const anchorLabel =
+                  step.consumedAnchor ? "锚片已介入" : step.hasAnchor === false ? "无锚片加固" : "锚片待命";
+                return `
+                <div class="touch-item storm-step ${step.outcome} ${step.stormCharge >= 6 ? "storm-high" : ""}">
+                  <div class="row">
+                    <strong>T${Math.max(1, step.turn)}</strong>
+                    <span>F${step.floor}</span>
+                    <span>${stateLabel}</span>
+                  </div>
+                  <div class="meter storm-meter"><i style="width:${chargeRate}%;"></i></div>
+                  <p class="hint">蓄能 ${step.stormCharge} · 判定 ${formatStormPercent(step.passChance)} / 掷值 ${formatStormPercent(step.roll)}</p>
+                  <p class="hint">${anchorLabel}${step.burstCount > 0 ? ` · 爆发累计 ${step.burstCount}` : ""}</p>
+                </div>`;
+              })
+              .join("");
+
+            return `<article class="panel">
+              <h3>Boss 风暴阶段监控</h3>
+              <div class="touch-list compact">
+                <div class="touch-item"><span>阶段回合</span><strong>${stormTimeline.steps.length}</strong></div>
+                <div class="touch-item"><span>最高蓄能</span><strong>${stormTimeline.maxCharge}</strong></div>
+                <div class="touch-item"><span>爆发回合</span><strong>${stormTimeline.burstSteps}</strong></div>
+                <div class="touch-item"><span>高压回合</span><strong>${stormTimeline.highRiskSteps}</strong></div>
+                <div class="touch-item"><span>锚片介入</span><strong>${stormTimeline.anchorConsumed} 次</strong></div>
+                <div class="touch-item"><span>缺锚片判定</span><strong>${stormTimeline.anchorMissing} 次</strong></div>
+              </div>
+              <div class="meter storm-meter"><i style="width:${maxChargeRate}%;"></i></div>
+              <p class="hint">${dangerHint}</p>
+              <div class="storm-track">${stepsHtml}</div>
+            </article>`;
+          })();
+
   return `
     <section class="panel-grid">
       ${renderOnboardingCard()}
 
-      <article class="panel">
+	      <article class="panel">
         <h3>出征配置</h3>
         <label class="field">迷宫
           <select id="dungeon-select">
@@ -1384,10 +1645,12 @@ function renderExpeditionTab(): string {
               </div>`
             : `<p class="hint">暂无出征记录，先派遣一次小队。</p>`
         }
-      </article>
+	      </article>
 
-      ${
-        assist
+        ${stormPanel}
+
+	      ${
+	        assist
           ? `<article class="panel">
               <h3>连续失败保护</h3>
               <div class="touch-list compact">
@@ -1655,6 +1918,7 @@ function renderTownTab(): string {
   const chapterPlan = getNextChapterUnlockPlan();
   const chapterIssues = chapterPlan ? getChapterUnlockIssues(chapterPlan) : [];
   const chapterReady = chapterPlan != null && chapterIssues.length === 0;
+  const chapterRequiredQuestTitle = chapterPlan ? chapterRequirementQuestTitle(chapterPlan.requireQuestId) : "";
   const canCraft =
     shardCount >= workshopRecipe.inputCount &&
     save.gold >= workshopRecipe.goldCost &&
@@ -1683,12 +1947,13 @@ function renderTownTab(): string {
                 <div class="touch-item"><span>下一章节</span><strong>第 ${chapterPlan.chapter} 章</strong></div>
                 <div class="touch-item"><span>推进消耗</span><strong>${chapterPlan.gold}G / ${chapterPlan.materials}M</strong></div>
                 <div class="touch-item"><span>条件</span><strong>疗养所 Lv.${chapterPlan.requireInfirmary} + 工坊 Lv.${chapterPlan.requireWorkshop}</strong></div>
+                <div class="touch-item"><span>前置委托</span><strong>${escapeHtml(chapterRequiredQuestTitle)}</strong></div>
               </div>
               <button data-action="unlock-next-chapter" class="${chapterReady ? "primary" : ""}" ${chapterReady ? "" : "disabled"}>推进到第 ${chapterPlan.chapter} 章</button>
               ${
                 chapterIssues.length > 0
                   ? `<p class="hint">未满足：${escapeHtml(chapterIssues.join("；"))}</p>`
-                  : `<p class="hint">条件已满足，推进后可解锁新的出征航线。</p>`
+                  : `<p class="hint">条件已满足，推进后可解锁新的航线与委托。</p>`
               }`
             : `<p class="hint">当前版本章节已全部解锁。</p>`
         }

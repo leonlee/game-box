@@ -54,7 +54,11 @@ const REASON_LABELS: Partial<Record<ReasonTag, string>> = {
   time_window_missed: "时段条件不匹配",
   enemy_overwhelm: "战斗压力过高",
   path_blocked: "路径阻断",
-  tactic_no_valid_action: "战术动作无效"
+  tactic_no_valid_action: "战术动作无效",
+  "ext.skybridge_convoy_delay": "护航队列失稳",
+  "ext.skybridge_fall_risk": "空桥坠落风险",
+  "ext.skybridge_phase_storm": "相位风暴失控",
+  "ext.skybridge_anchor_failure": "风暴锚片不足"
 };
 
 const ACTION_LABELS: Record<Action, string> = {

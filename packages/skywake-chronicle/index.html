@@ -399,6 +399,27 @@
       background: linear-gradient(90deg, #5da95d, #9fd86b);
     }
 
+    .meter.storm-meter {
+      height: 10px;
+      border-color: #6f4c2f;
+      background: #24170f;
+    }
+
+    .meter.storm-meter i {
+      background: linear-gradient(90deg, #d08446, #f2c76f);
+    }
+
+    .storm-track {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
+      gap: 8px;
+    }
+
+    .storm-step.storm-high {
+      border-color: rgba(240, 166, 106, 0.85);
+      box-shadow: inset 0 0 0 1px rgba(240, 166, 106, 0.35);
+    }
+
     .meta {
       margin: 0;
       color: var(--muted);
