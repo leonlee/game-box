@@ -1,4 +1,12 @@
-import { APP_MAJOR_VERSION, DEFAULT_META_PROGRESS, SAVE_VERSION, STORAGE_KEY, createDefaultSave } from "./content";
+import {
+  APP_MAJOR_VERSION,
+  DEFAULT_META_PROGRESS,
+  SAVE_VERSION,
+  STORAGE_KEY,
+  createDefaultQuests,
+  createDefaultSave,
+  reconcileQuestsWithContent
+} from "./content";
 import { ACTIONS, createTacticsConfig, validateTacticsConfig } from "./tactics";
 import {
   ActiveRunPlan,
@@ -432,7 +440,7 @@ function normalizeQuests(raw: unknown): { quests: SaveData["quests"] | null; cha
       typeof item.description !== "string" ||
       typeof item.dungeonId !== "string" ||
       typeof item.targetFloor !== "number" ||
-      (item.status !== "active" && item.status !== "completed") ||
+      (item.status !== "active" && item.status !== "completed" && item.status !== "locked") ||
       typeof item.progressFloor !== "number" ||
       typeof item.stableFloor !== "number"
     ) {
@@ -598,6 +606,12 @@ function migrateSave(raw: SaveData): { save: SaveData; changed: boolean } {
   const { settings: normalizedSettings, changed: settingsChanged } = normalizeSettings(raw.settings);
   const { onboarding: normalizedOnboarding, changed: onboardingChanged } = normalizeOnboarding(raw.onboarding);
   const { meta: normalizedMeta, changed: metaChanged } = normalizeMetaProgress(raw.meta);
+  const { quests: normalizedQuests, changed: questsChanged } = normalizeQuests(raw.quests);
+  const baseQuests = normalizedQuests ?? createDefaultQuests(normalizedMeta.chapterUnlocked);
+  const { quests: reconciledQuests, changed: questReconciledChanged } = reconcileQuestsWithContent(
+    baseQuests,
+    normalizedMeta.chapterUnlocked
+  );
   const { archivedRunSummary: normalizedArchivedRunSummary, changed: archivedRunSummaryChanged } =
     normalizeArchivedRunSummary(raw.archivedRunSummary);
   const { activeRunPlan: normalizedActiveRunPlan, changed: activeRunPlanChanged } = normalizeActiveRunPlan(raw.activeRunPlan);
@@ -610,6 +624,7 @@ function migrateSave(raw: SaveData): { save: SaveData; changed: boolean } {
     onboarding: normalizedOnboarding,
     activeRunPlan: normalizedActiveRunPlan,
     archivedRunSummary: normalizedArchivedRunSummary,
+    quests: reconciledQuests,
     tacticsProfiles: raw.tacticsProfiles,
     runs: Array.isArray(raw.runs) ? raw.runs : []
   };
@@ -634,6 +649,8 @@ function migrateSave(raw: SaveData): { save: SaveData; changed: boolean } {
       changed ||
       hintClaimsWasMissing ||
       metaChanged ||
+      questsChanged ||
+      questReconciledChanged ||
       settingsChanged ||
       onboardingChanged ||
       archivedRunSummaryChanged ||

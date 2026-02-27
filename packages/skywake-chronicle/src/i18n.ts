@@ -1,6 +1,6 @@
 import { Action, EventType, ReasonTag, Role, RunStatus } from "./types";
 
-type QuestStatus = "active" | "completed";
+type QuestStatus = "active" | "completed" | "locked";
 type TacticStyle = "aggressive" | "balanced" | "cautious" | "custom";
 type Outcome = "success" | "partial" | "failed";
 
@@ -13,7 +13,8 @@ const RUN_STATUS_LABELS: Record<RunStatus, string> = {
 
 const QUEST_STATUS_LABELS: Record<QuestStatus, string> = {
   active: "进行中",
-  completed: "已完成"
+  completed: "已完成",
+  locked: "未解锁"
 };
 
 const ROLE_LABELS: Record<Role, string> = {

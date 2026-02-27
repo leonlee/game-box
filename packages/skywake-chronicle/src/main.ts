@@ -1,4 +1,11 @@
-import { DUNGEONS, INVENTORY_CATALOG, createPresetProfile, getItemContentById } from "./content";
+import {
+  DUNGEONS,
+  INVENTORY_CATALOG,
+  createPresetProfile,
+  getItemContentById,
+  getQuestContentById,
+  reconcileQuestsWithContent
+} from "./content";
 import {
   labelAction,
   labelEventType,
@@ -286,7 +293,7 @@ function hasValidPostRunDelta(delta: unknown): delta is ActiveRunPlan["postRunDe
     return (
       typeof item.id === "string" &&
       typeof item.dungeonId === "string" &&
-      (item.status === "active" || item.status === "completed") &&
+      (item.status === "active" || item.status === "completed" || item.status === "locked") &&
       typeof item.targetFloor === "number"
     );
   });
@@ -1605,6 +1612,12 @@ function renderPartyTab(): string {
 function renderTownTab(): string {
   const quests = save.quests
     .map((quest) => {
+      const questContent = getQuestContentById(quest.id);
+      const chapterText = `第 ${questContent?.chapter ?? 1} 章`;
+      const progressHint =
+        quest.status === "locked"
+          ? `解锁条件：${chapterText}`
+          : `进度：${quest.progressFloor}/${quest.targetFloor}（稳定节点 ${quest.stableFloor}）`;
       return `
       <li class="touch-item">
         <div class="row">
@@ -1612,7 +1625,7 @@ function renderTownTab(): string {
           <span class="chip ${quest.status === "completed" ? "done" : ""}">${questStatusLabel(quest.status)}</span>
         </div>
         <p>${escapeHtml(quest.description)}</p>
-        <p class="hint">进度：${quest.progressFloor}/${quest.targetFloor}（稳定节点 ${quest.stableFloor}）</p>
+        <p class="hint">${progressHint}</p>
       </li>`;
     })
     .join("");
@@ -1983,6 +1996,8 @@ function unlockNextChapter(): void {
     return;
   }
 
+  const previousStatusByQuest = new Map(save.quests.map((quest) => [quest.id, quest.status]));
+  const reconciled = reconcileQuestsWithContent(save.quests, plan.chapter);
   save = {
     ...save,
     gold: save.gold - plan.gold,
@@ -1990,15 +2005,25 @@ function unlockNextChapter(): void {
     meta: {
       ...save.meta,
       chapterUnlocked: plan.chapter
-    }
+    },
+    quests: reconciled.quests
   };
   persistSave(save);
 
   const unlocked = DUNGEONS.filter((dungeon) => requiredChapterForDungeon(dungeon.id) === plan.chapter)
     .map((dungeon) => dungeon.name)
     .join("、");
+  const unlockedQuests = reconciled.quests
+    .filter((quest) => {
+      const previous = previousStatusByQuest.get(quest.id);
+      const chapter = getQuestContentById(quest.id)?.chapter ?? 1;
+      return previous === "locked" && quest.status === "active" && chapter === plan.chapter;
+    })
+    .map((quest) => quest.title)
+    .join("、");
   const unlockedText = unlocked.length > 0 ? `，新增航线：${unlocked}` : "";
-  setBanner(`章节推进完成：已解锁第 ${plan.chapter} 章${unlockedText}。`);
+  const unlockedQuestText = unlockedQuests.length > 0 ? `，新增委托：${unlockedQuests}` : "";
+  setBanner(`章节推进完成：已解锁第 ${plan.chapter} 章${unlockedText}${unlockedQuestText}。`);
 }
 
 function buyItem(itemId: string): void {

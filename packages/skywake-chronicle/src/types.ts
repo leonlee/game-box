@@ -167,7 +167,7 @@ export interface QuestState {
   description: string;
   dungeonId: string;
   targetFloor: number;
-  status: "active" | "completed";
+  status: "active" | "completed" | "locked";
   progressFloor: number;
   stableFloor: number;
 }

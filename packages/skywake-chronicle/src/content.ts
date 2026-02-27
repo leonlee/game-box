@@ -657,32 +657,107 @@ export function createPresetProfile(style: "aggressive" | "balanced" | "cautious
   };
 }
 
-export function createDefaultQuests(): QuestState[] {
+function resolveQuestDungeonId(quest: QuestContent, defaultDungeon: string): string {
+  return typeof quest.objective.dungeon_id === "string" && DUNGEONS.some((dungeon) => dungeon.id === quest.objective.dungeon_id)
+    ? quest.objective.dungeon_id
+    : defaultDungeon;
+}
+
+function resolveQuestTargetFloor(quest: QuestContent): number {
+  const targetFloorRaw = quest.objective.target_floor;
+  return typeof targetFloorRaw === "number" && Number.isFinite(targetFloorRaw) && targetFloorRaw > 0
+    ? Math.floor(targetFloorRaw)
+    : 1;
+}
+
+function createQuestStateFromContent(quest: QuestContent, defaultDungeon: string, chapterUnlocked: number): QuestState {
+  const dungeonId = resolveQuestDungeonId(quest, defaultDungeon);
+  const targetFloor = resolveQuestTargetFloor(quest);
+  const unlocked = quest.chapter <= chapterUnlocked;
+
+  return {
+    id: quest.id,
+    title: quest.title,
+    description: `${quest.title}（${quest.quest_type}）`,
+    dungeonId,
+    targetFloor,
+    status: unlocked ? "active" : "locked",
+    progressFloor: 0,
+    stableFloor: 0
+  };
+}
+
+export function createDefaultQuests(chapterUnlocked: number = DEFAULT_META_PROGRESS.chapterUnlocked): QuestState[] {
   const defaultDungeon = DUNGEONS[0]?.id ?? "abyssal_archive";
+  const unlockedChapter = Math.max(1, Math.floor(chapterUnlocked));
 
-  return CONTENT_PACK.quests.map((quest) => {
-    const dungeonId =
-      typeof quest.objective.dungeon_id === "string" && DUNGEONS.some((dungeon) => dungeon.id === quest.objective.dungeon_id)
-        ? quest.objective.dungeon_id
-        : defaultDungeon;
+  return CONTENT_PACK.quests.map((quest) => createQuestStateFromContent(quest, defaultDungeon, unlockedChapter));
+}
 
-    const targetFloorRaw = quest.objective.target_floor;
-    const targetFloor =
-      typeof targetFloorRaw === "number" && Number.isFinite(targetFloorRaw) && targetFloorRaw > 0
-        ? Math.floor(targetFloorRaw)
-        : 1;
+export function reconcileQuestsWithContent(
+  existingQuests: readonly QuestState[],
+  chapterUnlocked: number
+): { quests: QuestState[]; changed: boolean } {
+  const defaultDungeon = DUNGEONS[0]?.id ?? "abyssal_archive";
+  const unlockedChapter = Math.max(1, Math.floor(chapterUnlocked));
+  const questById = new Map(existingQuests.map((quest) => [quest.id, quest]));
+  let changed = false;
 
-    return {
-      id: quest.id,
-      title: quest.title,
-      description: `${quest.title}（${quest.quest_type}）`,
-      dungeonId,
-      targetFloor,
-      status: "active",
-      progressFloor: 0,
-      stableFloor: 0
+  const quests = CONTENT_PACK.quests.map((questDef) => {
+    const fallback = createQuestStateFromContent(questDef, defaultDungeon, unlockedChapter);
+    const existing = questById.get(questDef.id);
+    if (!existing) {
+      changed = true;
+      return fallback;
+    }
+
+    let status: QuestState["status"];
+    if (existing.status === "completed") {
+      status = "completed";
+    } else if (questDef.chapter <= unlockedChapter) {
+      status = "active";
+    } else {
+      status = "locked";
+    }
+
+    const progressFloor = status === "locked"
+      ? 0
+      : status === "completed"
+        ? fallback.targetFloor
+        : Math.min(fallback.targetFloor, Math.max(0, Math.floor(existing.progressFloor)));
+    const stableFloor = status === "locked"
+      ? 0
+      : status === "completed"
+        ? fallback.targetFloor
+        : Math.min(fallback.targetFloor, Math.max(0, Math.floor(existing.stableFloor)));
+
+    const normalized: QuestState = {
+      ...fallback,
+      status,
+      progressFloor,
+      stableFloor
     };
+
+    if (
+      existing.title !== normalized.title ||
+      existing.description !== normalized.description ||
+      existing.dungeonId !== normalized.dungeonId ||
+      existing.targetFloor !== normalized.targetFloor ||
+      existing.status !== normalized.status ||
+      existing.progressFloor !== normalized.progressFloor ||
+      existing.stableFloor !== normalized.stableFloor
+    ) {
+      changed = true;
+    }
+
+    return normalized;
   });
+
+  if (existingQuests.some((quest) => !CONTENT_PACK.quests.some((item) => item.id === quest.id))) {
+    changed = true;
+  }
+
+  return { quests, changed };
 }
 
 function createSaveId(): string {
@@ -789,7 +864,7 @@ export function createDefaultSave(): SaveData {
       }
     ],
     tacticsProfiles: [balanced, aggressive, cautious],
-    quests: createDefaultQuests(),
+    quests: createDefaultQuests(DEFAULT_META_PROGRESS.chapterUnlocked),
     runs: []
   };
 }

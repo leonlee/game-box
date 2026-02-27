@@ -162,7 +162,7 @@ function updateQuestProgress(save: SaveData, dungeonId: string, reachedFloor: nu
   const completedNow: string[] = [];
 
   save.quests.forEach((quest) => {
-    if (quest.dungeonId !== dungeonId || quest.status === "completed") return;
+    if (quest.dungeonId !== dungeonId || quest.status === "completed" || quest.status === "locked") return;
 
     if (status === "failed") {
       quest.progressFloor = quest.stableFloor;
@@ -332,7 +332,7 @@ interface QuestUpdateResult {
   progressFloor: number;
   targetFloor: number;
   stableFloor: number;
-  status: "active" | "completed";
+  status: "active" | "completed" | "locked";
 }
 
 function rollNodeDrop(rng: () => number, node: NodeContent): NodeDropResult | null {
@@ -388,7 +388,7 @@ function applyQuestRewards(save: SaveData, questIds: readonly string[]): QuestRe
 
 function buildQuestUpdatesForLog(save: SaveData, dungeonId: string): QuestUpdateResult[] {
   return save.quests
-    .filter((quest) => quest.dungeonId === dungeonId)
+    .filter((quest) => quest.dungeonId === dungeonId && quest.status !== "locked")
     .map((quest) => ({
       id: quest.id,
       title: quest.title,
@@ -407,7 +407,7 @@ function parseQuestUpdatesPayload(payload: Record<string, unknown>): QuestUpdate
   raw.forEach((item) => {
     if (!isRecord(item) || typeof item.id !== "string") return;
 
-    const status = item.status === "completed" ? "completed" : "active";
+    const status = item.status === "completed" ? "completed" : item.status === "locked" ? "locked" : "active";
     const progressFloorRaw = typeof item.progress_floor === "number" ? item.progress_floor : item.floor;
     const targetFloorRaw = item.target_floor;
     const stableFloorRaw = item.stable_floor;
@@ -1149,7 +1149,7 @@ function eventBrief(event: RunEvent): string {
       if (updates.length > 0) {
         const progressText = updates
           .map((quest) => {
-            const statusLabel = quest.status === "completed" ? "已完成" : "进行中";
+            const statusLabel = quest.status === "completed" ? "已完成" : quest.status === "locked" ? "未解锁" : "进行中";
             const progressLabel = quest.targetFloor > 0 ? `${quest.progressFloor}/${quest.targetFloor}` : `F${quest.progressFloor}`;
             return `${quest.title} ${progressLabel}（${statusLabel}）`;
           })
