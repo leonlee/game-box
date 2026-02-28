@@ -1088,6 +1088,42 @@ function buildEventDetailFacts(event: RunEvent): EventDetailFact[] {
   return facts.slice(0, 9);
 }
 
+function renderEventDetailContent(event: RunEvent, logView: LogView): string {
+  const detailFacts = buildEventDetailFacts(event)
+    .map((fact) => `<div class="log-detail-item"><span>${escapeHtml(fact.label)}</span><strong>${escapeHtml(fact.value)}</strong></div>`)
+    .join("");
+  if (logView === "narrative") {
+    return `<p>${escapeHtml(toNarrative(event))}</p>${detailFacts.length > 0 ? `<div class="log-detail-grid">${detailFacts}</div>` : ""}`;
+  }
+  return `${detailFacts.length > 0 ? `<div class="log-detail-grid">${detailFacts}</div>` : ""}<pre>${escapeHtml(
+    JSON.stringify(
+      {
+        seq: event.seq,
+        type: event.event_type,
+        floor: event.floor,
+        outcome: event.outcome,
+        reason_tags: event.reason_tags,
+        payload: toDebugPayload(event.payload)
+      },
+      null,
+      2
+    )
+  )}</pre>`;
+}
+
+function filterRunEvents(
+  run: SaveData["runs"][number] | null,
+  eventTypeFilter: EventType | "all",
+  reasonFilter: ReasonTag | "all"
+): RunEvent[] {
+  if (!run) return [];
+  return run.events.filter((event) => {
+    const eventTypePass = eventTypeFilter === "all" || event.event_type === eventTypeFilter;
+    const reasonPass = reasonFilter === "all" || event.reason_tags.includes(reasonFilter);
+    return eventTypePass && reasonPass;
+  });
+}
+
 function summaryLine(event: RunEvent): string {
   if (event.event_type === "combat_action") {
     return `${String(event.payload.actor_name ?? "队员")} · ${combatActionLabel(event.payload.action)} · ${outcomeLabel(event.outcome)}`;
@@ -1805,13 +1841,7 @@ function renderExpeditionTab(): string {
     .slice(0, 6)
     .map(([tag, count]) => ({ tag, count }));
 
-  const filteredEvents = run
-    ? run.events.filter((event) => {
-        const eventTypePass = ui.logTypeFilter === "all" || event.event_type === ui.logTypeFilter;
-        const reasonPass = ui.logReasonFilter === "all" || event.reason_tags.includes(ui.logReasonFilter);
-        return eventTypePass && reasonPass;
-      })
-    : [];
+  const filteredEvents = filterRunEvents(run, ui.logTypeFilter, ui.logReasonFilter);
   const logRowEstimate = logRowEstimateByView(ui.logView);
   const logViewportHeight = Math.max(220, ui.logViewportHeight);
   let virtualScrollTop = Math.max(0, ui.logScrollTop);
@@ -1879,29 +1909,7 @@ function renderExpeditionTab(): string {
         ui.logView === "narrative" && chapterBreakSeqs.has(event.seq)
           ? `<p class="chapter-label">${escapeHtml(chapterLabelForEvent(event))}</p>`
           : "";
-      const detailFacts = buildEventDetailFacts(event)
-        .map(
-          (fact) => `<div class="log-detail-item"><span>${escapeHtml(fact.label)}</span><strong>${escapeHtml(fact.value)}</strong></div>`
-        )
-        .join("");
-      const details =
-        ui.logView === "narrative"
-          ? `<p>${escapeHtml(toNarrative(event))}</p>${detailFacts.length > 0 ? `<div class="log-detail-grid">${detailFacts}</div>` : ""}`
-          : `${detailFacts.length > 0 ? `<div class="log-detail-grid">${detailFacts}</div>` : ""}<pre>${escapeHtml(
-              JSON.stringify(
-                {
-                  seq: event.seq,
-                  type: event.event_type,
-                  floor: event.floor,
-                  outcome: event.outcome,
-                  reason_tags: event.reason_tags,
-                  payload: toDebugPayload(event.payload)
-                },
-                null,
-                2
-              )
-            )}</pre>`;
-      const detailBlock = expanded ? `<div class="detail-block">${details}</div>` : "";
+      const detailBlock = "";
       const quickReason = event.reason_tags[0] ?? "all";
       const contextActive = ui.logQuickSeq === event.seq;
 
@@ -1917,13 +1925,40 @@ function renderExpeditionTab(): string {
         <p class="summary-line">${escapeHtml(summaryLine(event))}</p>
         <div class="row">
           <span class="hint">${event.reason_tags.length > 0 ? `${event.reason_tags.length} 个标签` : "无标签"}</span>
-          <span class="hint">${expanded ? "点按收起" : "点按展开"}</span>
+          <span class="hint">${expanded ? "详情已同步右侧" : "点按查看详情"}</span>
         </div>
         ${detailBlock}
         ${tagLine}
       </article>`;
     })
     .join("");
+  const detailEvent = filteredEvents.find((event) => event.seq === ui.expandedLogSeq) ?? filteredEvents[filteredEvents.length - 1] ?? null;
+  const detailIndex = detailEvent ? filteredEvents.findIndex((event) => event.seq === detailEvent.seq) : -1;
+  const detailPrev = detailIndex > 0 ? filteredEvents[detailIndex - 1] : null;
+  const detailNext = detailIndex >= 0 && detailIndex < filteredEvents.length - 1 ? filteredEvents[detailIndex + 1] : null;
+  const detailPanelBody = detailEvent
+    ? `<div class="log-detail-hero">
+          <div class="row">
+            <strong>#${detailEvent.seq} · ${eventTypeLabel(detailEvent.event_type)}</strong>
+            <span class="chip">F${detailEvent.floor} · ${outcomeLabel(detailEvent.outcome)}</span>
+          </div>
+          <p class="hint">时间 T+${formatEventOffset(detailEvent.time_offset_sec)} · 节点 ${escapeHtml(detailEvent.node_id)}</p>
+        </div>
+        <div class="log-detail-content">${renderEventDetailContent(detailEvent, ui.logView)}</div>`
+    : `<p class="hint">当前筛选下没有日志事件，调整筛选后可查看详情。</p>`;
+  const detailPanel = `
+    <aside class="log-detail-panel">
+      <div class="toolbar">
+        <h4>事件详情</h4>
+        <span class="chip">${detailEvent ? `${detailIndex + 1}/${filteredEvents.length}` : "0/0"}</span>
+      </div>
+      ${detailPanelBody}
+      <div class="inline-buttons wrap">
+        <button data-action="log-focus-event" data-value="${detailPrev?.seq ?? ""}" ${detailPrev ? "" : "disabled"}>上一条</button>
+        <button data-action="log-focus-event" data-value="${detailNext?.seq ?? ""}" ${detailNext ? "" : "disabled"}>下一条</button>
+      </div>
+    </aside>
+  `;
   const logItems =
     filteredEvents.length > 0
       ? `${spacerTopHeight > 0 ? `<div class="log-spacer" style="height:${Math.round(spacerTopHeight)}px" aria-hidden="true"></div>` : ""}${logCards}${
@@ -2350,10 +2385,15 @@ function renderExpeditionTab(): string {
         }
       </div>
 
-      <div id="log-list" class="touch-list logs" data-log-row-estimate="${logRowEstimate}" data-auto-follow="${autoFollowLiveLog ? "1" : "0"}" data-smooth-scroll="${ui.logSmoothScroll ? "1" : "0"}">
-        ${logItems}
+      <div class="log-review-layout">
+        <div class="log-column">
+          <div id="log-list" class="touch-list logs" data-log-row-estimate="${logRowEstimate}" data-auto-follow="${autoFollowLiveLog ? "1" : "0"}" data-smooth-scroll="${ui.logSmoothScroll ? "1" : "0"}">
+            ${logItems}
+          </div>
+          <p class="hint">提示：长按（或桌面端右键）打开快捷操作；左滑按类型筛选，右滑定位回放。自动跟随在滚动离底部后会自动关闭，回到底部会自动恢复。</p>
+        </div>
+        ${detailPanel}
       </div>
-      <p class="hint">提示：长按（或桌面端右键）打开快捷操作；左滑按类型筛选，右滑定位回放。自动跟随在滚动离底部后会自动关闭，回到底部会自动恢复。</p>
     </section>
 
     ${renderLogQuickSheet(run, replayMoments)}
@@ -4269,6 +4309,22 @@ function handleClick(event: MouseEvent): void {
     }
   } else if (action === "close-log-quick-sheet") {
     closeLogQuickSheet();
+  } else if (action === "log-focus-event") {
+    const seq = Number(value);
+    if (selectedRun && Number.isFinite(seq)) {
+      const targetTop = approximateLogScrollTopForSeq(selectedRun, seq, ui.logView);
+      ui = {
+        ...ui,
+        tab: "expedition",
+        expandedLogSeq: seq,
+        logAutoFollow: false,
+        logScrollTop: targetTop,
+        logVirtualRow: logVirtualRowByTop(targetTop, ui.logView),
+        logQuickSeq: 0,
+        logQuickType: "all",
+        logQuickReason: "all"
+      };
+    }
   } else if (action === "toggle-log-expand") {
     const seq = Number(value);
     if (Number.isFinite(seq)) {
@@ -4276,7 +4332,7 @@ function handleClick(event: MouseEvent): void {
         suppressLogToggleSeq = 0;
         return;
       }
-      ui = { ...ui, expandedLogSeq: ui.expandedLogSeq === seq ? 0 : seq };
+      ui = { ...ui, expandedLogSeq: seq, logAutoFollow: false };
     }
   } else if (action === "export-save") {
     exportSaveBackup();
