@@ -4874,6 +4874,27 @@ function handleScroll(event: Event): void {
   render();
 }
 
+function handleWindowResize(): void {
+  const logList = app.querySelector<HTMLElement>("#log-list");
+  if (!logList) {
+    render();
+    return;
+  }
+
+  const nextViewportHeight = Math.max(120, logList.clientHeight);
+  if (Math.abs(nextViewportHeight - ui.logViewportHeight) < 2) {
+    render();
+    return;
+  }
+
+  ui = {
+    ...ui,
+    logViewportHeight: nextViewportHeight,
+    logVirtualRow: logVirtualRowByTop(ui.logScrollTop, ui.logView)
+  };
+  render();
+}
+
 app.addEventListener("click", handleClick);
 app.addEventListener("change", handleChange);
 app.addEventListener("input", handleInput);
@@ -4883,6 +4904,7 @@ app.addEventListener("touchstart", handleTouchStart, { passive: true });
 app.addEventListener("touchmove", handleTouchMove, { passive: true });
 app.addEventListener("touchend", handleTouchEnd, { passive: true });
 app.addEventListener("touchcancel", handleTouchCancel, { passive: true });
+window.addEventListener("resize", handleWindowResize);
 
 finalizeActiveRunIfDue();
 window.setInterval(() => {
