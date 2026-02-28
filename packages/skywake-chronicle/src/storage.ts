@@ -9,6 +9,7 @@ import {
 } from "./content";
 import { ACTIONS, createTacticsConfig, validateTacticsConfig } from "./tactics";
 import {
+  ActiveRunSpeedMultiplier,
   ActiveRunPlan,
   ArchivedRunSummary,
   Action,
@@ -40,6 +41,7 @@ const DEFAULT_SETTINGS: SaveSettings = {
 };
 
 const TIME_SCALE_OPTIONS: readonly ExpeditionTimeScale[] = [1, 4, 10] as const;
+const ACTIVE_RUN_SPEED_OPTIONS: readonly ActiveRunSpeedMultiplier[] = [1, 2, 4, 8] as const;
 
 const DEFAULT_ONBOARDING: OnboardingProgress = {
   openedPartyTab: false,
@@ -531,6 +533,8 @@ function normalizeActiveRunPlan(raw: unknown): { activeRunPlan: ActiveRunPlan | 
   const run = raw.run;
   const startedAt = raw.startedAt;
   const finishAt = raw.finishAt;
+  const runtimeSpeedMultiplierRaw = raw.runtimeSpeedMultiplier;
+  const unlockedEventCountRaw = raw.unlockedEventCount;
   const pausedAtRaw = raw.pausedAt;
   const pausedAccumMsRaw = raw.pausedAccumMs;
   const postRunDeltaRaw = raw.postRunDelta;
@@ -565,6 +569,15 @@ function normalizeActiveRunPlan(raw: unknown): { activeRunPlan: ActiveRunPlan | 
   const pausedAtCandidate =
     pausedAtRaw == null ? null : typeof pausedAtRaw === "number" && Number.isFinite(pausedAtRaw) ? pausedAtRaw : null;
   const pausedAt = pausedAtCandidate != null && pausedAtCandidate < startedAt ? startedAt : pausedAtCandidate;
+  const runtimeSpeedMultiplier =
+    typeof runtimeSpeedMultiplierRaw === "number" &&
+    ACTIVE_RUN_SPEED_OPTIONS.includes(runtimeSpeedMultiplierRaw as ActiveRunSpeedMultiplier)
+      ? (runtimeSpeedMultiplierRaw as ActiveRunSpeedMultiplier)
+      : 1;
+  const unlockedEventCount =
+    typeof unlockedEventCountRaw === "number" && Number.isFinite(unlockedEventCountRaw) && unlockedEventCountRaw >= 0
+      ? Math.min(run.events.length, Math.floor(unlockedEventCountRaw))
+      : 0;
   const pausedAccumMs =
     typeof pausedAccumMsRaw === "number" && Number.isFinite(pausedAccumMsRaw) && pausedAccumMsRaw >= 0
       ? Math.floor(pausedAccumMsRaw)
@@ -578,13 +591,19 @@ function normalizeActiveRunPlan(raw: unknown): { activeRunPlan: ActiveRunPlan | 
     return { activeRunPlan: null, changed: true };
   }
 
-  const pauseChanged = pausedAt !== pausedAtRaw || pausedAccumMs !== pausedAccumMsRaw;
+  const pauseChanged =
+    pausedAt !== pausedAtRaw ||
+    pausedAccumMs !== pausedAccumMsRaw ||
+    runtimeSpeedMultiplier !== runtimeSpeedMultiplierRaw ||
+    unlockedEventCount !== unlockedEventCountRaw;
 
   return {
     activeRunPlan: {
       run: run as unknown as SaveData["runs"][number],
       startedAt,
       finishAt,
+      runtimeSpeedMultiplier,
+      unlockedEventCount,
       pausedAt,
       pausedAccumMs,
       postRunDelta: resolvedPostRunDelta

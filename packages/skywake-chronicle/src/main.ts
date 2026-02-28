@@ -21,10 +21,15 @@ import { estimateRunMinutes, simulateRun, toNarrative } from "./simulator";
 import { exportSaveString, importSaveString, loadSave, persistSave, wipeSave } from "./storage";
 import { getActiveProfile, validateTacticsConfig } from "./tactics";
 import {
+  ActiveRunSpeedMultiplier,
   ActiveRunPlan,
+  ConditionExpr,
+  ConditionLeaf,
   EventType,
   ExpeditionTimeScale,
+  Fact,
   LogView,
+  Operator,
   ReasonTag,
   RunEvent,
   SaveData,
@@ -84,8 +89,53 @@ const CHAPTER_UNLOCK_PLANS = [
   }
 ] as const;
 const TIME_SCALE_OPTIONS: readonly ExpeditionTimeScale[] = [1, 4, 10] as const;
+const ACTIVE_RUN_SPEED_OPTIONS: readonly ActiveRunSpeedMultiplier[] = [1, 2, 4, 8] as const;
 const HAS_MONOTONIC_CLOCK = typeof performance !== "undefined" && typeof performance.now === "function";
 const MONOTONIC_ORIGIN_MS = HAS_MONOTONIC_CLOCK ? Date.now() - performance.now() : Date.now();
+const LOG_VIRTUAL_OVERSCAN = 8;
+const LOG_VIRTUAL_ROW_ESTIMATE_NARRATIVE = 138;
+const LOG_VIRTUAL_ROW_ESTIMATE_DEBUG = 228;
+const REPLAY_SWIPE_THRESHOLD_PX = 56;
+const REPLAY_SWIPE_DIRECTION_RATIO = 1.2;
+const LOG_LONG_PRESS_DELAY_MS = 380;
+const LOG_LONG_PRESS_CANCEL_DISTANCE_PX = 14;
+const LOG_ENTRY_SWIPE_THRESHOLD_PX = 52;
+const LOG_ENTRY_SWIPE_DIRECTION_RATIO = 1.15;
+const LOG_AUTO_FOLLOW_BOTTOM_GAP = 84;
+const PROGRAMMATIC_LOG_SCROLL_MS = 280;
+const RULE_EDITOR_FACT_OPTIONS: readonly Fact[] = [
+  "self_stress_pct",
+  "self_has_consequence",
+  "self_resource_pct",
+  "ally_min_stress_pct",
+  "party_consumable_count",
+  "party_has_item",
+  "enemy_has_aspect",
+  "enemy_count_alive",
+  "enemy_is_elite",
+  "scene_has_aspect",
+  "node_type",
+  "time_window",
+  "fate_point_count",
+  "turn_index",
+  "rule_triggered_recently",
+  "combat_is_boss"
+] as const;
+const RULE_EDITOR_NUMERIC_FACTS = new Set<Fact>([
+  "self_stress_pct",
+  "self_resource_pct",
+  "ally_min_stress_pct",
+  "party_consumable_count",
+  "enemy_count_alive",
+  "fate_point_count",
+  "turn_index"
+]);
+const RULE_EDITOR_BOOLEAN_FACTS = new Set<Fact>([
+  "self_has_consequence",
+  "enemy_is_elite",
+  "rule_triggered_recently",
+  "combat_is_boss"
+]);
 
 type TacticStyle = "aggressive" | "balanced" | "cautious";
 type FacilityId = "infirmary" | "workshop";
@@ -163,6 +213,7 @@ interface ActiveRunSnapshot {
   startedAt: number;
   finishAt: number;
   expectedFinishAt: number;
+  runtimeSpeedMultiplier: ActiveRunSpeedMultiplier;
   paused: boolean;
   nextEvent: {
     event: RunEvent;
@@ -183,6 +234,33 @@ interface WorkshopRecipeView {
   materialCost: number;
   outputCount: number;
   bonusText: string;
+}
+
+interface ReplaySwipeState {
+  startX: number;
+  startY: number;
+  currentX: number;
+  currentY: number;
+}
+
+interface LogLongPressState {
+  seq: number;
+  eventType: EventType;
+  reasonTag: ReasonTag | "all";
+  startX: number;
+  startY: number;
+  timerId: number | null;
+  fired: boolean;
+}
+
+interface LogSwipeState {
+  seq: number;
+  eventType: EventType;
+  reasonTag: ReasonTag | "all";
+  startX: number;
+  startY: number;
+  currentX: number;
+  currentY: number;
 }
 
 interface SkybridgeStormStep {
@@ -235,6 +313,19 @@ function planElapsedMs(plan: ActiveRunPlan, now = runtimeNow()): number {
   const anchorNow = plan.pausedAt ?? now;
   const elapsed = anchorNow - plan.startedAt - Math.max(0, plan.pausedAccumMs);
   return clamp(elapsed, 0, durationMs);
+}
+
+function elapsedVisibleEventCount(plan: ActiveRunPlan, elapsedMs: number): number {
+  const elapsedSec = Math.floor(Math.max(0, elapsedMs) / 1000);
+  const nextIndex = plan.run.events.findIndex((event) => event.time_offset_sec > elapsedSec);
+  return nextIndex < 0 ? plan.run.events.length : nextIndex;
+}
+
+function resolvedUnlockedEventCount(plan: ActiveRunPlan, elapsedMs: number): number {
+  const elapsedCount = elapsedVisibleEventCount(plan, elapsedMs);
+  const rawStoredCount = Number.isFinite(plan.unlockedEventCount) ? plan.unlockedEventCount : 0;
+  const storedCount = clamp(Math.floor(rawStoredCount), 0, plan.run.events.length);
+  return Math.max(storedCount, elapsedCount);
 }
 
 function cloneJson<T>(value: T): T {
@@ -368,6 +459,10 @@ function timeScaleLabel(scale: ExpeditionTimeScale): string {
   return `${scale}x`;
 }
 
+function nextActiveRunSpeedMultiplier(multiplier: ActiveRunSpeedMultiplier): ActiveRunSpeedMultiplier | null {
+  return ACTIVE_RUN_SPEED_OPTIONS.find((option) => option > multiplier) ?? null;
+}
+
 function computePlannedDurationMs(
   minMinutes: number,
   maxMinutes: number,
@@ -392,9 +487,9 @@ function getActiveRunSnapshot(now = runtimeNow()): ActiveRunSnapshot | null {
   const remainingMs = Math.max(0, durationMs - elapsedMs);
   const expectedFinishAt = plan.finishAt + planPauseCarryMs(plan, now);
   const progressRate = clamp(elapsedMs / durationMs, 0, 1);
-  const elapsedSec = Math.floor(elapsedMs / 1000);
-  const visibleEvents = plan.run.events.filter((event) => event.time_offset_sec <= elapsedSec);
-  const nextEvent = plan.run.events.find((event) => event.time_offset_sec > elapsedSec) ?? null;
+  const unlockedEventCount = resolvedUnlockedEventCount(plan, elapsedMs);
+  const visibleEvents = plan.run.events.slice(0, unlockedEventCount);
+  const nextEvent = plan.run.events[unlockedEventCount] ?? null;
   const fallbackEvents = visibleEvents.length > 0 ? visibleEvents : plan.run.events.slice(0, 1);
   const reachedFloor = fallbackEvents.reduce((max, event) => Math.max(max, event.floor), 1);
   const reasonTags = Array.from(new Set(fallbackEvents.flatMap((event) => event.reason_tags)));
@@ -418,6 +513,7 @@ function getActiveRunSnapshot(now = runtimeNow()): ActiveRunSnapshot | null {
     startedAt: plan.startedAt,
     finishAt: plan.finishAt,
     expectedFinishAt,
+    runtimeSpeedMultiplier: plan.runtimeSpeedMultiplier,
     paused: plan.pausedAt != null,
     nextEvent:
       nextEvent == null
@@ -449,12 +545,33 @@ let ui: UiState = {
   logView: save.settings.defaultLogView,
   logTypeFilter: "all",
   logReasonFilter: "all",
+  logScrollTop: 0,
+  logViewportHeight: 440,
+  logVirtualRow: 0,
+  logAutoFollow: true,
+  logSmoothScroll: true,
+  logQuickSeq: 0,
+  logQuickType: "all",
+  logQuickReason: "all",
+  collapsedExpeditionPanels: [],
+  tacticRuleEditorRuleId: "",
+  tacticRuleEditorLeafIndex: 0,
+  tacticRuleEditorFact: "self_stress_pct",
+  tacticRuleEditorOp: "<=",
+  tacticRuleEditorValue: "35",
+  tacticRuleEditorError: "",
   editorText: initialEditorText(),
   editorErrors: [],
   importText: "",
   importErrors: [],
   banner: ""
 };
+
+let replaySwipeState: ReplaySwipeState | null = null;
+let logLongPressState: LogLongPressState | null = null;
+let logSwipeState: LogSwipeState | null = null;
+let suppressLogToggleSeq = 0;
+let programmaticLogScrollUntil = 0;
 
 function escapeHtml(value: string): string {
   return value
@@ -496,6 +613,114 @@ function asRecoverySummary(raw: unknown): RecoverySummary | null {
 
   if (stressRecovered <= 0 && mentalRecovered <= 0 && resourceRecovered <= 0 && consequencesCleared <= 0) return null;
   return { stressRecovered, mentalRecovered, resourceRecovered, consequencesCleared };
+}
+
+function logRowEstimateByView(logView: LogView): number {
+  return logView === "debug" ? LOG_VIRTUAL_ROW_ESTIMATE_DEBUG : LOG_VIRTUAL_ROW_ESTIMATE_NARRATIVE;
+}
+
+function logVirtualRowByTop(scrollTop: number, logView: LogView): number {
+  const rowEstimate = logRowEstimateByView(logView);
+  return Math.max(0, Math.floor(Math.max(0, scrollTop) / rowEstimate));
+}
+
+function approximateLogScrollTopForSeq(run: SaveData["runs"][number] | null, seq: number, logView: LogView): number {
+  if (!run || run.events.length === 0) return 0;
+  const rowEstimate = logRowEstimateByView(logView);
+  const index = run.events.findIndex((event) => event.seq === seq);
+  if (index < 0) return 0;
+  return Math.max(0, index * rowEstimate - rowEstimate * 2);
+}
+
+function isLogNearBottom(scrollTop: number, viewportHeight: number, scrollHeight: number): boolean {
+  return scrollTop + viewportHeight >= scrollHeight - LOG_AUTO_FOLLOW_BOTTOM_GAP;
+}
+
+function clearLogLongPressTimer(): void {
+  if (!logLongPressState || logLongPressState.timerId == null) return;
+  window.clearTimeout(logLongPressState.timerId);
+  logLongPressState.timerId = null;
+}
+
+function openLogQuickSheet(seq: number, eventType: EventType, reasonTag: ReasonTag | "all"): void {
+  ui = {
+    ...ui,
+    tab: "expedition",
+    logQuickSeq: seq,
+    logQuickType: eventType,
+    logQuickReason: reasonTag
+  };
+  render();
+}
+
+function closeLogQuickSheet(): void {
+  if (ui.logQuickSeq === 0) return;
+  ui = {
+    ...ui,
+    logQuickSeq: 0,
+    logQuickType: "all",
+    logQuickReason: "all"
+  };
+}
+
+function parseLogEntryDataset(node: HTMLElement): { seq: number; eventType: EventType; reasonTag: ReasonTag | "all" } | null {
+  const seq = Number(node.dataset.logSeq ?? "");
+  if (!Number.isFinite(seq)) return null;
+  const eventType = node.dataset.logType as EventType | undefined;
+  if (!eventType) return null;
+  const reasonTag = (node.dataset.logReason as ReasonTag | "all" | undefined) ?? "all";
+  return {
+    seq,
+    eventType,
+    reasonTag
+  };
+}
+
+function findClosestReplayMomentIndex(replayMoments: ReplayMoment[], seq: number): number {
+  if (replayMoments.length === 0) return -1;
+  let bestIndex = 0;
+  let bestDistance = Math.abs(replayMoments[0].seq - seq);
+  for (let index = 1; index < replayMoments.length; index += 1) {
+    const distance = Math.abs(replayMoments[index].seq - seq);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      bestIndex = index;
+    }
+  }
+  return bestIndex;
+}
+
+function renderLogQuickSheet(run: SaveData["runs"][number] | null, replayMoments: ReplayMoment[]): string {
+  if (ui.logQuickSeq <= 0 || !run) return "";
+  const event = run.events.find((item) => item.seq === ui.logQuickSeq);
+  if (!event) return "";
+
+  const primaryReason = event.reason_tags.length > 0 ? event.reason_tags[0] : null;
+  const replayIndex = findClosestReplayMomentIndex(replayMoments, event.seq);
+  const replayTarget = replayIndex >= 0 ? replayMoments[replayIndex] : null;
+
+  return `
+    <div class="quick-sheet-backdrop" data-action="close-log-quick-sheet" aria-hidden="true"></div>
+    <section class="quick-sheet" role="dialog" aria-label="日志快捷操作">
+      <div class="toolbar">
+        <h3>日志快捷操作</h3>
+        <span class="chip">#${event.seq}</span>
+      </div>
+      <p class="hint">${escapeHtml(summaryLine(event))}</p>
+      <div class="touch-list compact">
+        <div class="touch-item"><span>事件类型</span><strong>${eventTypeLabel(event.event_type)}</strong></div>
+        <div class="touch-item"><span>原因标签</span><strong>${event.reason_tags.length > 0 ? escapeHtml(event.reason_tags.map(reasonText).join(" / ")) : "无"}</strong></div>
+        <div class="touch-item"><span>回放定位</span><strong>${replayTarget ? `#${replayTarget.seq}` : "不可用"}</strong></div>
+      </div>
+      <div class="inline-buttons wrap">
+        <button data-action="log-quick-expand">展开/收起详情</button>
+        <button data-action="log-quick-filter-type" data-value="${event.event_type}">按类型筛选</button>
+        <button data-action="log-quick-filter-reason" data-value="${primaryReason ?? ""}" ${primaryReason ? "" : "disabled"}>按原因筛选</button>
+        <button data-action="log-quick-jump-replay" data-value="${event.seq}" ${replayTarget ? "" : "disabled"}>回放定位</button>
+      </div>
+      <button data-action="close-log-quick-sheet">关闭</button>
+    </section>
+  `;
 }
 
 function parseSkybridgeStormStep(event: RunEvent): SkybridgeStormStep | null {
@@ -730,6 +955,137 @@ function chapterLabelForEvent(event: RunEvent): string {
   if (event.event_type === "gate_blocked") return "机关阻断";
   if (event.event_type === "combat_start" || event.event_type === "combat_end") return "战斗段";
   return `第 ${event.floor} 层`;
+}
+
+interface EventDetailFact {
+  label: string;
+  value: string;
+}
+
+function formatEventOffset(seconds: number): string {
+  const totalSeconds = Math.max(0, Math.floor(seconds));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const remain = totalSeconds % 60;
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, "0")}:${String(remain).padStart(2, "0")}`;
+  }
+  return `${String(minutes).padStart(2, "0")}:${String(remain).padStart(2, "0")}`;
+}
+
+function formatPayloadPercent(value: number): string {
+  const normalized = value <= 1 ? value * 100 : value;
+  return `${Math.round(normalized)}%`;
+}
+
+function buildEventDetailFacts(event: RunEvent): EventDetailFact[] {
+  const payload = event.payload;
+  const facts: EventDetailFact[] = [
+    { label: "时间", value: `T+${formatEventOffset(event.time_offset_sec)}` },
+    { label: "节点", value: event.node_id },
+    { label: "结果", value: outcomeLabel(event.outcome) }
+  ];
+
+  if (event.reason_tags.length > 0) {
+    facts.push({ label: "标签", value: event.reason_tags.map(reasonText).join(" / ") });
+  }
+  if (typeof payload.scene_aspect === "string" && payload.scene_aspect.length > 0) {
+    facts.push({ label: "场景", value: payload.scene_aspect });
+  }
+  if (typeof payload.check_type === "string" && payload.check_type.length > 0) {
+    facts.push({ label: "判定", value: payload.check_type });
+  }
+  if (typeof payload.rule_id === "string" && payload.rule_id.length > 0 && payload.rule_id !== "none") {
+    facts.push({ label: "命中规则", value: payload.rule_id });
+  }
+  if (typeof payload.actor_name === "string" && payload.actor_name.length > 0) {
+    facts.push({ label: "行动者", value: payload.actor_name });
+  }
+  if (typeof payload.action === "string" && payload.action.length > 0) {
+    facts.push({ label: "动作", value: combatActionLabel(payload.action) });
+  }
+  if (typeof payload.target_name === "string" && payload.target_name.length > 0) {
+    facts.push({ label: "目标", value: payload.target_name });
+  }
+  if (typeof payload.enemy_hp === "number" && Number.isFinite(payload.enemy_hp)) {
+    facts.push({ label: "敌方HP", value: `${Math.max(0, Math.floor(payload.enemy_hp))}` });
+  }
+  if (typeof payload.enemy_hp_before === "number" && Number.isFinite(payload.enemy_hp_before)) {
+    facts.push({ label: "敌前HP", value: `${Math.max(0, Math.floor(payload.enemy_hp_before))}` });
+  }
+  if (typeof payload.value === "number" && Number.isFinite(payload.value) && event.event_type === "combat_action") {
+    facts.push({ label: "效果值", value: `${Math.floor(payload.value)}` });
+  }
+  if (typeof payload.pass_chance === "number" && Number.isFinite(payload.pass_chance)) {
+    facts.push({ label: "通过率", value: formatPayloadPercent(payload.pass_chance) });
+  }
+  if (typeof payload.roll === "number" && Number.isFinite(payload.roll)) {
+    facts.push({ label: "掷值", value: formatPayloadPercent(payload.roll) });
+  }
+  if (typeof payload.reward_gold === "number" || typeof payload.reward_materials === "number") {
+    const gold = typeof payload.reward_gold === "number" && Number.isFinite(payload.reward_gold) ? Math.floor(payload.reward_gold) : 0;
+    const materials =
+      typeof payload.reward_materials === "number" && Number.isFinite(payload.reward_materials) ? Math.floor(payload.reward_materials) : 0;
+    facts.push({ label: "层奖励", value: `+${gold}G / +${materials}M` });
+  }
+  if (typeof payload.item_id === "string" && payload.item_id.length > 0) {
+    const item = getItemContentById(payload.item_id);
+    const quantity =
+      typeof payload.quantity === "number" && Number.isFinite(payload.quantity) ? Math.max(1, Math.floor(payload.quantity)) : 1;
+    facts.push({ label: "掉落", value: `${item?.name ?? payload.item_id} x${quantity}` });
+  }
+  if (typeof payload.retained_gold === "number" || typeof payload.retained_materials === "number") {
+    const gold =
+      typeof payload.retained_gold === "number" && Number.isFinite(payload.retained_gold) ? Math.floor(payload.retained_gold) : 0;
+    const materials =
+      typeof payload.retained_materials === "number" && Number.isFinite(payload.retained_materials) ? Math.floor(payload.retained_materials) : 0;
+    facts.push({ label: "返航收益", value: `+${gold}G / +${materials}M` });
+  }
+  if (typeof payload.expected === "string" || typeof payload.current === "string") {
+    const expected = typeof payload.expected === "string" ? payload.expected : "--";
+    const current = typeof payload.current === "string" ? payload.current : "--";
+    facts.push({ label: "时段", value: `${current} / 目标 ${expected}` });
+  }
+  if (typeof payload.bonus_materials === "number" && Number.isFinite(payload.bonus_materials)) {
+    facts.push({ label: "加成材料", value: `+${Math.floor(payload.bonus_materials)}M` });
+  }
+  if (typeof payload.penalty_gold === "number" && Number.isFinite(payload.penalty_gold)) {
+    facts.push({ label: "损失金币", value: `-${Math.floor(payload.penalty_gold)}G` });
+  }
+  if (typeof payload.stress_loss === "number" && Number.isFinite(payload.stress_loss)) {
+    facts.push({ label: "体力损失", value: `${Math.floor(payload.stress_loss)}` });
+  }
+  if (Array.isArray(payload.impacted) && payload.impacted.length > 0) {
+    facts.push({ label: "波及队员", value: `${payload.impacted.length} 人` });
+  }
+
+  if (event.event_type === "quest_progress") {
+    const updates = Array.isArray(payload.quest_updates) ? payload.quest_updates.filter((item) => item && typeof item === "object") : [];
+    if (updates.length > 0) {
+      const completed = updates.filter((item) => (item as Record<string, unknown>).status === "completed").length;
+      facts.push({ label: "任务进度", value: `${completed}/${updates.length} 已完成` });
+    }
+    const completedQuestIds = Array.isArray(payload.completed_quests)
+      ? payload.completed_quests.filter((item): item is string => typeof item === "string")
+      : [];
+    if (completedQuestIds.length > 0) {
+      facts.push({ label: "新完成任务", value: `${completedQuestIds.length} 个` });
+    }
+    const rewards = Array.isArray(payload.granted_rewards) ? payload.granted_rewards.filter((item) => item && typeof item === "object") : [];
+    if (rewards.length > 0) {
+      const rewardGold = rewards.reduce((sum, reward) => {
+        const gold = (reward as Record<string, unknown>).gold;
+        return sum + (typeof gold === "number" && Number.isFinite(gold) ? Math.floor(gold) : 0);
+      }, 0);
+      const rewardMaterials = rewards.reduce((sum, reward) => {
+        const materials = (reward as Record<string, unknown>).materials;
+        return sum + (typeof materials === "number" && Number.isFinite(materials) ? Math.floor(materials) : 0);
+      }, 0);
+      facts.push({ label: "任务奖励", value: `+${rewardGold}G / +${rewardMaterials}M` });
+    }
+  }
+
+  return facts.slice(0, 9);
 }
 
 function summaryLine(event: RunEvent): string {
@@ -1345,7 +1701,9 @@ function finalizeActiveRunIfDue(force = false): boolean {
       replayIndex: 0,
       expandedLogSeq: 0,
       logTypeFilter: "all",
-      logReasonFilter: "all"
+      logReasonFilter: "all",
+      logScrollTop: 0,
+      logVirtualRow: 0
     };
     setBanner(
       `出征完成：${runStatusLabel(finishedRun.status)} · +${finishedRun.retainedGold} 金币 / +${finishedRun.retainedMaterials} 材料`
@@ -1386,6 +1744,24 @@ function renderCharacterCards(): string {
     .join("");
 }
 
+function isExpeditionPanelCollapsed(panelId: string): boolean {
+  return ui.collapsedExpeditionPanels.includes(panelId);
+}
+
+function renderExpeditionPanel(panelId: string, title: string, bodyHtml: string, summary = ""): string {
+  const collapsed = isExpeditionPanelCollapsed(panelId);
+  return `<article class="panel expedition-panel ${collapsed ? "collapsed" : ""}" data-expedition-panel="${panelId}">
+      <div class="toolbar">
+        <h3>${escapeHtml(title)}</h3>
+        <div class="inline-buttons">
+          ${summary.length > 0 ? `<span class="chip">${escapeHtml(summary)}</span>` : ""}
+          <button data-action="toggle-expedition-panel" data-value="${panelId}">${collapsed ? "展开" : "折叠"}</button>
+        </div>
+      </div>
+      ${collapsed ? `<p class="hint">已折叠，点“展开”查看详情。</p>` : bodyHtml}
+    </article>`;
+}
+
 function renderExpeditionTab(): string {
   const dungeon = getDungeon();
   const requiredChapter = requiredChapterForDungeon(dungeon.id);
@@ -1405,6 +1781,29 @@ function renderExpeditionTab(): string {
   const analytics = buildRunAnalytics(dungeon.id);
   const allReasons = run ? Array.from(new Set(run.events.flatMap((event) => event.reason_tags))).sort() : [];
   const stormTimeline = buildSkybridgeStormTimeline(run);
+  const quickTypeOptions: Array<{ value: EventType | "all"; label: string }> = [
+    { value: "all", label: "全部" },
+    { value: "overcome_check", label: "判定" },
+    { value: "combat_start", label: "开战" },
+    { value: "combat_end", label: "战斗结算" },
+    { value: "retreat_triggered", label: "撤退" },
+    { value: "run_end", label: "返航" }
+  ];
+  const reasonUsage = new Map<ReasonTag, number>();
+  if (run) {
+    run.events.forEach((event) => {
+      event.reason_tags.forEach((tag) => {
+        reasonUsage.set(tag, (reasonUsage.get(tag) ?? 0) + 1);
+      });
+    });
+  }
+  const quickReasonOptions = [...reasonUsage.entries()]
+    .sort((a, b) => {
+      if (b[1] !== a[1]) return b[1] - a[1];
+      return a[0].localeCompare(b[0]);
+    })
+    .slice(0, 6)
+    .map(([tag, count]) => ({ tag, count }));
 
   const filteredEvents = run
     ? run.events.filter((event) => {
@@ -1413,11 +1812,52 @@ function renderExpeditionTab(): string {
         return eventTypePass && reasonPass;
       })
     : [];
+  const logRowEstimate = logRowEstimateByView(ui.logView);
+  const logViewportHeight = Math.max(220, ui.logViewportHeight);
+  let virtualScrollTop = Math.max(0, ui.logScrollTop);
+  const activeRunSelected = Boolean(activeRunSnapshot && run && activeRunSnapshot.run.runId === run.runId);
+  const autoFollowLiveLog = ui.logAutoFollow && activeRunSelected && ui.logTypeFilter === "all" && ui.logReasonFilter === "all";
+
+  if (autoFollowLiveLog && filteredEvents.length > 0) {
+    const latestTop = Math.max(0, (filteredEvents.length - 1) * logRowEstimate - logRowEstimate * 2);
+    if (Math.abs(latestTop - virtualScrollTop) > 1) {
+      virtualScrollTop = latestTop;
+      ui.logScrollTop = latestTop;
+      ui.logVirtualRow = logVirtualRowByTop(latestTop, ui.logView);
+    }
+  }
+
+  if (ui.expandedLogSeq > 0 && filteredEvents.length > 0) {
+    const focusedIndex = filteredEvents.findIndex((event) => event.seq === ui.expandedLogSeq);
+    if (focusedIndex >= 0) {
+      const focusedTop = focusedIndex * logRowEstimate;
+      const focusedBottom = focusedTop + logRowEstimate;
+      if (focusedTop < virtualScrollTop || focusedBottom > virtualScrollTop + logViewportHeight) {
+        virtualScrollTop = Math.max(0, focusedTop - logRowEstimate * 1.2);
+        ui.logScrollTop = virtualScrollTop;
+        ui.logVirtualRow = logVirtualRowByTop(virtualScrollTop, ui.logView);
+      }
+    }
+  }
+
+  const visibleRows = Math.max(6, Math.ceil(logViewportHeight / logRowEstimate));
+  const virtualStart =
+    filteredEvents.length === 0
+      ? 0
+      : clamp(Math.floor(virtualScrollTop / logRowEstimate) - LOG_VIRTUAL_OVERSCAN, 0, Math.max(0, filteredEvents.length - 1));
+  const virtualEnd =
+    filteredEvents.length === 0
+      ? 0
+      : clamp(virtualStart + visibleRows + LOG_VIRTUAL_OVERSCAN * 2, virtualStart, filteredEvents.length);
+  const windowEvents = filteredEvents.slice(virtualStart, virtualEnd);
+  const spacerTopHeight = Math.max(0, virtualStart * logRowEstimate);
+  const spacerBottomHeight = Math.max(0, (filteredEvents.length - virtualEnd) * logRowEstimate);
 
   const chapterBreakSeqs = new Set<number>();
   if (ui.logView === "narrative") {
-    filteredEvents.forEach((event, index) => {
-      const prev = index > 0 ? filteredEvents[index - 1] : null;
+    windowEvents.forEach((event, index) => {
+      const absoluteIndex = virtualStart + index;
+      const prev = absoluteIndex > 0 ? filteredEvents[absoluteIndex - 1] : null;
       const isBoundary =
         !prev ||
         prev.floor !== event.floor ||
@@ -1431,7 +1871,7 @@ function renderExpeditionTab(): string {
     });
   }
 
-  const logItems = filteredEvents
+  const logCards = windowEvents
     .map((event) => {
       const expanded = ui.expandedLogSeq === event.seq;
       const tagLine = event.reason_tags.length > 0 ? `<p class="tags">${event.reason_tags.map(reasonText).join("，")}</p>` : "";
@@ -1439,10 +1879,15 @@ function renderExpeditionTab(): string {
         ui.logView === "narrative" && chapterBreakSeqs.has(event.seq)
           ? `<p class="chapter-label">${escapeHtml(chapterLabelForEvent(event))}</p>`
           : "";
+      const detailFacts = buildEventDetailFacts(event)
+        .map(
+          (fact) => `<div class="log-detail-item"><span>${escapeHtml(fact.label)}</span><strong>${escapeHtml(fact.value)}</strong></div>`
+        )
+        .join("");
       const details =
         ui.logView === "narrative"
-          ? `<p>${escapeHtml(toNarrative(event))}</p>`
-          : `<pre>${escapeHtml(
+          ? `<p>${escapeHtml(toNarrative(event))}</p>${detailFacts.length > 0 ? `<div class="log-detail-grid">${detailFacts}</div>` : ""}`
+          : `${detailFacts.length > 0 ? `<div class="log-detail-grid">${detailFacts}</div>` : ""}<pre>${escapeHtml(
               JSON.stringify(
                 {
                   seq: event.seq,
@@ -1457,25 +1902,34 @@ function renderExpeditionTab(): string {
               )
             )}</pre>`;
       const detailBlock = expanded ? `<div class="detail-block">${details}</div>` : "";
+      const quickReason = event.reason_tags[0] ?? "all";
+      const contextActive = ui.logQuickSeq === event.seq;
 
       return `
-      <li class="touch-item ${event.outcome} ${expanded ? "expanded" : ""}">
+      <article class="touch-item log-entry ${event.outcome} ${expanded ? "expanded" : ""} ${contextActive ? "context" : ""}" data-action="toggle-log-expand" data-value="${event.seq}" data-log-seq="${event.seq}" data-log-type="${event.event_type}" data-log-reason="${quickReason}">
         ${chapterHeader}
-        <div class="row">
-          <strong>#${event.seq}</strong>
-          <span>${eventTypeLabel(event.event_type)}</span>
-          <span>F${event.floor}</span>
+        <div class="event-head">
+          <strong class="event-seq">#${event.seq}</strong>
+          <span class="event-type">${eventTypeLabel(event.event_type)} · ${outcomeLabel(event.outcome)}</span>
+          <span class="event-floor">F${event.floor}</span>
+          <span class="event-time">T+${formatEventOffset(event.time_offset_sec)}</span>
         </div>
         <p class="summary-line">${escapeHtml(summaryLine(event))}</p>
         <div class="row">
           <span class="hint">${event.reason_tags.length > 0 ? `${event.reason_tags.length} 个标签` : "无标签"}</span>
-          <button data-action="toggle-log-expand" data-value="${event.seq}">${expanded ? "收起" : "展开"}</button>
+          <span class="hint">${expanded ? "点按收起" : "点按展开"}</span>
         </div>
         ${detailBlock}
         ${tagLine}
-      </li>`;
+      </article>`;
     })
     .join("");
+  const logItems =
+    filteredEvents.length > 0
+      ? `${spacerTopHeight > 0 ? `<div class="log-spacer" style="height:${Math.round(spacerTopHeight)}px" aria-hidden="true"></div>` : ""}${logCards}${
+          spacerBottomHeight > 0 ? `<div class="log-spacer" style="height:${Math.round(spacerBottomHeight)}px" aria-hidden="true"></div>` : ""
+        }`
+      : `<div class="touch-item"><p class="hint">当前筛选下没有日志事件。</p></div>`;
 
   const formatStormPercent = (value: number | null): string => {
     if (value == null) return "--";
@@ -1483,35 +1937,71 @@ function renderExpeditionTab(): string {
     return `${Math.round(normalized)}%`;
   };
 
+  const quickTypeButtons = quickTypeOptions
+    .map((item) => {
+      const active = ui.logTypeFilter === item.value;
+      return `<button data-action="quick-log-type" data-value="${item.value}" class="${active ? "on" : ""}">${item.label}</button>`;
+    })
+    .join("");
+  const quickReasonButtons = quickReasonOptions
+    .map((item) => {
+      const active = ui.logReasonFilter === item.tag;
+      return `<button data-action="quick-log-reason" data-value="${item.tag}" class="${active ? "on" : ""}">${escapeHtml(reasonText(item.tag))} · ${item.count}</button>`;
+    })
+    .join("");
+
+  const hasActiveFilters = !(ui.logTypeFilter === "all" && ui.logReasonFilter === "all");
+  const stickyPrimaryAction = runInProgress ? (activeRunSnapshot?.paused ? "resume-run" : "pause-run") : "start-run";
+  const stickyPrimaryLabel = runInProgress
+    ? activeRunSnapshot?.paused
+      ? "恢复探险"
+      : "暂停探险"
+    : dungeonLocked
+      ? "章节未解锁"
+      : "派遣小队";
+  const stickyPrimaryDisabled = !runInProgress && dungeonLocked ? "disabled" : "";
+  const nextRunSpeed = activeRunSnapshot ? nextActiveRunSpeedMultiplier(activeRunSnapshot.runtimeSpeedMultiplier) : null;
+  const stickySecondaryAction = runInProgress
+    ? nextRunSpeed
+      ? `<button data-action="set-run-speed" data-value="${nextRunSpeed}" class="danger">加速到 ${nextRunSpeed}x</button>`
+      : `<button disabled>已最高倍率</button>`
+    : `<button data-action="set-log-view" data-value="${ui.logView === "narrative" ? "debug" : "narrative"}">${ui.logView === "narrative" ? "切到调试" : "切到叙事"}</button>`;
+  const stickyActionBar = `
+    <section class="expedition-sticky-actions">
+      <button data-action="${stickyPrimaryAction}" class="primary" ${stickyPrimaryDisabled}>${stickyPrimaryLabel}</button>
+      ${stickySecondaryAction}
+      <button data-action="jump-latest-log" ${run ? "" : "disabled"}>最新日志</button>
+      <button data-action="clear-log-filters" ${hasActiveFilters ? "" : "disabled"}>清空筛选</button>
+    </section>
+  `;
+
   const stormPanel =
     stormTimeline == null
       ? ""
-      : stormTimeline.steps.length === 0
-        ? `<article class="panel">
-            <h3>Boss 风暴阶段监控</h3>
-            <p class="hint">${
+      : (() => {
+          if (stormTimeline.steps.length === 0) {
+            const emptyHint =
               run?.status === "running"
                 ? "当前记录尚未进入顶层风暴阶段。推进至天穹桥域顶层后会出现蓄能判定。"
-                : "本次记录未触发相位风暴阶段判定。"
-            }</p>
-          </article>`
-        : (() => {
-            const lastStep = stormTimeline.steps[stormTimeline.steps.length - 1] ?? null;
-            const maxChargeRate = Math.min(100, Math.max(0, stormTimeline.maxCharge * 12.5));
-            const dangerHint =
-              run?.status === "running"
-                ? lastStep && lastStep.stormCharge >= 6
-                  ? "已进入高压蓄能区，优先防御/优势动作并准备锚片介入。"
-                  : "当前未达高压阈值，建议在蓄能升至 6 前完成防线准备。"
-                : "可重点复盘高压回合（蓄能>=6 或爆发回合）并调整战术。";
-            const stepsHtml = stormTimeline.steps
-              .map((step) => {
-                const chargeRate = Math.min(100, Math.max(6, step.stormCharge * 12.5));
-                const stateLabel =
-                  step.outcome === "success" ? "压制成功" : step.outcome === "partial" ? "风暴爆发" : "风暴失控";
-                const anchorLabel =
-                  step.consumedAnchor ? "锚片已介入" : step.hasAnchor === false ? "无锚片加固" : "锚片待命";
-                return `
+                : "本次记录未触发相位风暴阶段判定。";
+            return renderExpeditionPanel("storm-watch", "Boss 风暴阶段监控", `<p class="hint">${emptyHint}</p>`, "未触发");
+          }
+
+          const lastStep = stormTimeline.steps[stormTimeline.steps.length - 1] ?? null;
+          const maxChargeRate = Math.min(100, Math.max(0, stormTimeline.maxCharge * 12.5));
+          const dangerHint =
+            run?.status === "running"
+              ? lastStep && lastStep.stormCharge >= 6
+                ? "已进入高压蓄能区，优先防御/优势动作并准备锚片介入。"
+                : "当前未达高压阈值，建议在蓄能升至 6 前完成防线准备。"
+              : "可重点复盘高压回合（蓄能>=6 或爆发回合）并调整战术。";
+          const stepsHtml = stormTimeline.steps
+            .map((step) => {
+              const chargeRate = Math.min(100, Math.max(6, step.stormCharge * 12.5));
+              const stateLabel =
+                step.outcome === "success" ? "压制成功" : step.outcome === "partial" ? "风暴爆发" : "风暴失控";
+              const anchorLabel = step.consumedAnchor ? "锚片已介入" : step.hasAnchor === false ? "无锚片加固" : "锚片待命";
+              return `
                 <div class="touch-item storm-step ${step.outcome} ${step.stormCharge >= 6 ? "storm-high" : ""}">
                   <div class="row">
                     <strong>T${Math.max(1, step.turn)}</strong>
@@ -1522,26 +2012,214 @@ function renderExpeditionTab(): string {
                   <p class="hint">蓄能 ${step.stormCharge} · 判定 ${formatStormPercent(step.passChance)} / 掷值 ${formatStormPercent(step.roll)}</p>
                   <p class="hint">${anchorLabel}${step.burstCount > 0 ? ` · 爆发累计 ${step.burstCount}` : ""}</p>
                 </div>`;
-              })
-              .join("");
+            })
+            .join("");
 
-            return `<article class="panel">
-              <h3>Boss 风暴阶段监控</h3>
-              <div class="touch-list compact">
-                <div class="touch-item"><span>阶段回合</span><strong>${stormTimeline.steps.length}</strong></div>
-                <div class="touch-item"><span>最高蓄能</span><strong>${stormTimeline.maxCharge}</strong></div>
-                <div class="touch-item"><span>爆发回合</span><strong>${stormTimeline.burstSteps}</strong></div>
-                <div class="touch-item"><span>高压回合</span><strong>${stormTimeline.highRiskSteps}</strong></div>
-                <div class="touch-item"><span>锚片介入</span><strong>${stormTimeline.anchorConsumed} 次</strong></div>
-                <div class="touch-item"><span>缺锚片判定</span><strong>${stormTimeline.anchorMissing} 次</strong></div>
+          return renderExpeditionPanel(
+            "storm-watch",
+            "Boss 风暴阶段监控",
+            `<div class="touch-list compact">
+              <div class="touch-item"><span>阶段回合</span><strong>${stormTimeline.steps.length}</strong></div>
+              <div class="touch-item"><span>最高蓄能</span><strong>${stormTimeline.maxCharge}</strong></div>
+              <div class="touch-item"><span>爆发回合</span><strong>${stormTimeline.burstSteps}</strong></div>
+              <div class="touch-item"><span>高压回合</span><strong>${stormTimeline.highRiskSteps}</strong></div>
+              <div class="touch-item"><span>锚片介入</span><strong>${stormTimeline.anchorConsumed} 次</strong></div>
+              <div class="touch-item"><span>缺锚片判定</span><strong>${stormTimeline.anchorMissing} 次</strong></div>
+            </div>
+            <div class="meter storm-meter"><i style="width:${maxChargeRate}%;"></i></div>
+            <p class="hint">${dangerHint}</p>
+            <div class="storm-track">${stepsHtml}</div>`,
+            `高压 ${stormTimeline.highRiskSteps} / 爆发 ${stormTimeline.burstSteps}`
+          );
+        })();
+
+  const liveRunPanel = activeRunSnapshot
+    ? (() => {
+        const speedButtons = ACTIVE_RUN_SPEED_OPTIONS.map((multiplier) => {
+          const active = multiplier === activeRunSnapshot.runtimeSpeedMultiplier;
+          const disabled = multiplier === activeRunSnapshot.runtimeSpeedMultiplier;
+          return `<button data-action="set-run-speed" data-value="${multiplier}" class="${active ? "on" : ""}" ${disabled ? "disabled" : ""}>${multiplier}x</button>`;
+        }).join("");
+
+        return renderExpeditionPanel(
+          "live-run",
+          "实时探险进度",
+          `<div class="touch-list compact">
+              <div class="touch-item"><span>出征编号</span><strong>${activeRunSnapshot.run.runId}</strong></div>
+              <div class="touch-item"><span>状态</span><strong>${activeRunSnapshot.paused ? "已暂停" : "进行中"}</strong></div>
+              <div class="touch-item"><span>推进层数</span><strong>${activeRunSnapshot.run.reachedFloor} / ${activeRunSnapshot.run.plannedFloor}</strong></div>
+              <div class="touch-item"><span>进度</span><strong>${percentText(activeRunSnapshot.progressRate)}</strong></div>
+              <div class="touch-item"><span>剩余时间</span><strong>${formatCountdown(activeRunSnapshot.remainingMs)}</strong></div>
+              <div class="touch-item"><span>预计返航</span><strong>${new Date(activeRunSnapshot.expectedFinishAt).toLocaleTimeString()}</strong></div>
+              <div class="touch-item"><span>当前倍率</span><strong>${activeRunSnapshot.runtimeSpeedMultiplier}x</strong></div>
+              <div class="touch-item"><span>下一关键事件</span><strong>${
+                activeRunSnapshot.nextEvent
+                  ? `F${activeRunSnapshot.nextEvent.event.floor} · ${eventTypeLabel(activeRunSnapshot.nextEvent.event.event_type)}（${formatCountdown(activeRunSnapshot.nextEvent.etaMs)}）`
+                  : "无"
+              }</strong></div>
+            </div>
+            <div class="meter progress-meter"><i style="width:${Math.round(activeRunSnapshot.progressRate * 100)}%;"></i></div>
+            <div class="inline-buttons">
+              <button data-action="${activeRunSnapshot.paused ? "resume-run" : "pause-run"}">${activeRunSnapshot.paused ? "恢复计时" : "暂停计时"}</button>
+            </div>
+            <div class="inline-buttons wrap">
+              ${speedButtons}
+            </div>
+            <p class="hint">日志会随时间推进逐步解锁；已解锁事件不会因倍率调整而回退。</p>`,
+          `${percentText(activeRunSnapshot.progressRate)} · ${formatCountdown(activeRunSnapshot.remainingMs)}`
+        );
+      })()
+    : "";
+
+  const runStatusText =
+    run && activeRunSnapshot && run.runId === activeRunSnapshot.run.runId && activeRunSnapshot.paused
+      ? "已暂停"
+      : run
+        ? runStatusLabel(run.status)
+        : "暂无记录";
+  const runSummaryPanel = renderExpeditionPanel(
+    "run-summary",
+    runInProgress ? "当前出征" : "最近一次出征",
+    run
+      ? `<div class="touch-list compact">
+          <div class="touch-item"><span>出征编号</span><strong>${run.runId}</strong></div>
+          <div class="touch-item"><span>状态</span><strong>${runStatusText}</strong></div>
+          <div class="touch-item"><span>层数</span><strong>${run.reachedFloor} / ${run.plannedFloor}</strong></div>
+          <div class="touch-item"><span>结算</span><strong>+${run.retainedGold} 金币 / +${run.retainedMaterials} 材料</strong></div>
+          ${
+            runRecovery
+              ? `<div class="touch-item"><span>返航恢复</span><strong>体力 +${runRecovery.stressRecovered} / 心智 +${runRecovery.mentalRecovered} / 资源 +${runRecovery.resourceRecovered}${runRecovery.consequencesCleared > 0 ? ` / 清除后果 ${runRecovery.consequencesCleared}` : ""}</strong></div>`
+              : ""
+          }
+          <div class="touch-item"><span>失败原因</span><strong>${escapeHtml(summarizeReasonCounts(run.reasonTags))}</strong></div>
+        </div>`
+      : `<p class="hint">暂无出征记录，先派遣一次小队。</p>`,
+    run ? `${runStatusText} · F${run.reachedFloor}/${run.plannedFloor}` : "暂无记录"
+  );
+
+  const assistPanel =
+    assist == null
+      ? ""
+      : renderExpeditionPanel(
+          "failure-assist",
+          "连续失败保护",
+          `<div class="touch-list compact">
+              <div class="touch-item"><span>任务</span><strong>${escapeHtml(assist.questTitle)}</strong></div>
+              <div class="touch-item"><span>连续失败</span><strong>${assist.streak} 次</strong></div>
+              <div class="touch-item"><span>主要问题</span><strong>${escapeHtml(assist.reason)}</strong></div>
+              <div class="touch-item"><span>推荐模板</span><strong>${styleLabel(assist.style)}</strong></div>
+            </div>
+            <button data-action="apply-failure-assist" data-value="${assist.style}" data-quest-id="${assist.questId}" class="primary">一键应用建议</button>`,
+          `${assist.streak} 连败`
+        );
+
+  const diagnosisPanel =
+    diagnosis == null
+      ? ""
+      : renderExpeditionPanel(
+          "diagnosis",
+          "复盘建议",
+          `<div class="touch-list compact">
+              <div class="touch-item"><span>主因</span><strong>${escapeHtml(reasonText(diagnosis.primaryReason))}</strong></div>
+              <div class="touch-item"><span>标签</span><strong>${escapeHtml(diagnosis.reasons.map(reasonText).join(" / "))}</strong></div>
+            </div>
+            <ul class="touch-list compact">
+              ${diagnosis.notes.map((note) => `<li class="touch-item"><p>${escapeHtml(note)}</p></li>`).join("")}
+            </ul>
+            ${
+              diagnosis.actions.length > 0
+                ? `<div class="inline-buttons wrap">
+                    ${diagnosis.actions
+                      .map((action) =>
+                        action.action === "craft-calibrator"
+                          ? `<button data-action="${action.action}">${escapeHtml(action.label)}</button>`
+                          : `<button data-action="${action.action}" data-value="${action.value ?? ""}">${escapeHtml(action.label)}</button>`
+                      )
+                      .join("")}
+                  </div>`
+                : ""
+            }`,
+          reasonText(diagnosis.primaryReason)
+        );
+
+  const replayPanel =
+    replayMoments.length <= 0
+      ? ""
+      : renderExpeditionPanel(
+          "replay",
+          "关键回合回放",
+          `<div data-gesture="replay">
+              <p class="hint replay-swipe-hint">在此面板左右滑动可切换回放步骤。</p>
+              <div class="inline-buttons">
+                <button data-action="replay-prev" ${replayIndex <= 0 ? "disabled" : ""}>上一步</button>
+                <button data-action="replay-next" ${replayIndex >= replayMoments.length - 1 ? "disabled" : ""}>下一步</button>
+                <button data-action="replay-focus-active" ${activeReplay ? "" : "disabled"}>定位日志</button>
               </div>
-              <div class="meter storm-meter"><i style="width:${maxChargeRate}%;"></i></div>
-              <p class="hint">${dangerHint}</p>
-              <div class="storm-track">${stepsHtml}</div>
-            </article>`;
-          })();
+              <ul class="touch-list compact">
+                ${replayMoments
+                  .map(
+                    (item, index) => `<li class="touch-item ${index === replayIndex ? "active" : ""}">
+                        <div class="row">
+                          <strong>#${item.seq}</strong>
+                          <span>${eventTypeLabel(item.eventType)}</span>
+                          <span>F${item.floor}</span>
+                        </div>
+                        <p>${escapeHtml(item.summary)}</p>
+                        <div class="row">
+                          <span>${item.reasonTags.length > 0 ? escapeHtml(item.reasonTags.map(reasonText).join(" / ")) : "无原因标签"}</span>
+                          <button data-action="replay-select" data-value="${index}">跳转</button>
+                        </div>
+                      </li>`
+                  )
+                  .join("")}
+              </ul>
+              ${
+                save.settings.advancedDebugView && activeReplay?.ruleId
+                  ? `<p class="hint">当前步骤 rule_id：${escapeHtml(activeReplay.ruleId)}</p>`
+                  : ""
+              }
+            </div>`,
+          `${replayIndex + 1}/${replayMoments.length}`
+        );
+
+  const analyticsPanel =
+    analytics == null
+      ? ""
+      : renderExpeditionPanel(
+          "analytics",
+          "近期统计看板",
+          `<p class="hint">${escapeHtml(analytics.scopeLabel)}</p>
+            <div class="touch-list compact">
+              <div class="touch-item"><span>完成 / 撤退 / 失败</span><strong>${percentText(analytics.completionRate)} / ${percentText(analytics.retreatRate)} / ${percentText(analytics.failRate)}</strong></div>
+              <div class="touch-item"><span>平均推进</span><strong>${percentText(analytics.avgProgressRate)}</strong></div>
+              <div class="touch-item"><span>平均结算</span><strong>+${Math.round(analytics.avgRetainedGold)}G / +${Math.round(analytics.avgRetainedMaterials)}M</strong></div>
+              <div class="touch-item"><span>样本</span><strong>${analytics.sampleSize} 次出征</strong></div>
+            </div>
+            <div class="touch-list compact">
+              ${
+                analytics.topReasons.length > 0
+                  ? analytics.topReasons
+                      .map(
+                        (item) =>
+                          `<div class="touch-item"><span>${escapeHtml(reasonText(item.tag))}</span><strong>${item.count} 次</strong><button data-action="filter-log-reason" data-value="${item.tag}">筛日志</button></div>`
+                      )
+                      .join("")
+                  : `<div class="touch-item"><p class="hint">当前样本未记录核心失败标签。</p></div>`
+              }
+            </div>
+            ${
+              analytics.recommendStyle && analytics.primaryReason
+                ? `<div class="inline-buttons wrap">
+                    <button data-action="apply-analytics-preset" data-value="${analytics.recommendStyle}" class="primary">按统计建议套用${styleLabel(analytics.recommendStyle)}</button>
+                  </div>
+                  <p class="hint">统计主因：${escapeHtml(reasonText(analytics.primaryReason))}</p>`
+                : ""
+            }`,
+          `${analytics.sampleSize} 样本`
+        );
 
   return `
+    ${stickyActionBar}
     <section class="panel-grid">
       ${renderOnboardingCard()}
 
@@ -1594,177 +2272,22 @@ function renderExpeditionTab(): string {
         <button class="primary" data-action="start-run" ${runInProgress || dungeonLocked ? "disabled" : ""}>
           ${runInProgress ? "探险进行中" : dungeonLocked ? "章节未解锁" : "派遣小队"}
         </button>
+        <div class="command-strip">
+          <button data-action="set-log-view" data-value="narrative" class="${ui.logView === "narrative" ? "on" : ""}">叙事日志</button>
+          <button data-action="set-log-view" data-value="debug" class="${ui.logView === "debug" ? "on" : ""}">调试日志</button>
+          <button data-action="jump-latest-log" ${run ? "" : "disabled"}>最新事件</button>
+          <button data-action="clear-log-filters" ${(ui.logTypeFilter === "all" && ui.logReasonFilter === "all") ? "disabled" : ""}>清空筛选</button>
+        </div>
       </article>
 
-      ${
-        activeRunSnapshot
-          ? `<article class="panel">
-              <h3>实时探险进度</h3>
-              <div class="touch-list compact">
-                <div class="touch-item"><span>出征编号</span><strong>${activeRunSnapshot.run.runId}</strong></div>
-                <div class="touch-item"><span>状态</span><strong>${activeRunSnapshot.paused ? "已暂停" : "进行中"}</strong></div>
-                <div class="touch-item"><span>推进层数</span><strong>${activeRunSnapshot.run.reachedFloor} / ${activeRunSnapshot.run.plannedFloor}</strong></div>
-                <div class="touch-item"><span>进度</span><strong>${percentText(activeRunSnapshot.progressRate)}</strong></div>
-                <div class="touch-item"><span>剩余时间</span><strong>${formatCountdown(activeRunSnapshot.remainingMs)}</strong></div>
-                <div class="touch-item"><span>预计返航</span><strong>${new Date(activeRunSnapshot.expectedFinishAt).toLocaleTimeString()}</strong></div>
-                <div class="touch-item"><span>下一关键事件</span><strong>${
-                  activeRunSnapshot.nextEvent
-                    ? `F${activeRunSnapshot.nextEvent.event.floor} · ${eventTypeLabel(activeRunSnapshot.nextEvent.event.event_type)}（${formatCountdown(activeRunSnapshot.nextEvent.etaMs)}）`
-                    : "无"
-                }</strong></div>
-              </div>
-              <div class="meter progress-meter"><i style="width:${Math.round(activeRunSnapshot.progressRate * 100)}%;"></i></div>
-              <div class="inline-buttons">
-                <button data-action="${activeRunSnapshot.paused ? "resume-run" : "pause-run"}">${activeRunSnapshot.paused ? "恢复计时" : "暂停计时"}</button>
-                <button data-action="fast-forward-run">加速返航并结算</button>
-              </div>
-              <p class="hint">日志会随时间推进逐步解锁；暂停时进度与日志冻结。</p>
-            </article>`
-          : ""
-      }
+      ${liveRunPanel}
+      ${runSummaryPanel}
+      ${stormPanel}
+      ${assistPanel}
+      ${diagnosisPanel}
+      ${replayPanel}
+      ${analyticsPanel}
 
-      <article class="panel">
-        <h3>${runInProgress ? "当前出征" : "最近一次出征"}</h3>
-        ${
-          run
-            ? `<div class="touch-list compact">
-                <div class="touch-item"><span>出征编号</span><strong>${run.runId}</strong></div>
-                <div class="touch-item"><span>状态</span><strong>${
-                  activeRunSnapshot && run.runId === activeRunSnapshot.run.runId && activeRunSnapshot.paused
-                    ? "已暂停"
-                    : runStatusLabel(run.status)
-                }</strong></div>
-                <div class="touch-item"><span>层数</span><strong>${run.reachedFloor} / ${run.plannedFloor}</strong></div>
-                <div class="touch-item"><span>结算</span><strong>+${run.retainedGold} 金币 / +${run.retainedMaterials} 材料</strong></div>
-                ${
-                  runRecovery
-                    ? `<div class="touch-item"><span>返航恢复</span><strong>体力 +${runRecovery.stressRecovered} / 心智 +${runRecovery.mentalRecovered} / 资源 +${runRecovery.resourceRecovered}${runRecovery.consequencesCleared > 0 ? ` / 清除后果 ${runRecovery.consequencesCleared}` : ""}</strong></div>`
-                    : ""
-                }
-                <div class="touch-item"><span>失败原因</span><strong>${escapeHtml(summarizeReasonCounts(run.reasonTags))}</strong></div>
-              </div>`
-            : `<p class="hint">暂无出征记录，先派遣一次小队。</p>`
-        }
-	      </article>
-
-        ${stormPanel}
-
-	      ${
-	        assist
-          ? `<article class="panel">
-              <h3>连续失败保护</h3>
-              <div class="touch-list compact">
-                <div class="touch-item"><span>任务</span><strong>${escapeHtml(assist.questTitle)}</strong></div>
-                <div class="touch-item"><span>连续失败</span><strong>${assist.streak} 次</strong></div>
-                <div class="touch-item"><span>主要问题</span><strong>${escapeHtml(assist.reason)}</strong></div>
-                <div class="touch-item"><span>推荐模板</span><strong>${styleLabel(assist.style)}</strong></div>
-              </div>
-              <button data-action="apply-failure-assist" data-value="${assist.style}" data-quest-id="${assist.questId}" class="primary">一键应用建议</button>
-            </article>`
-          : ""
-      }
-
-      ${
-        diagnosis
-          ? `<article class="panel">
-              <h3>复盘建议</h3>
-              <div class="touch-list compact">
-                <div class="touch-item"><span>主因</span><strong>${escapeHtml(reasonText(diagnosis.primaryReason))}</strong></div>
-                <div class="touch-item"><span>标签</span><strong>${escapeHtml(diagnosis.reasons.map(reasonText).join(" / "))}</strong></div>
-              </div>
-              <ul class="touch-list compact">
-                ${diagnosis.notes.map((note) => `<li class="touch-item"><p>${escapeHtml(note)}</p></li>`).join("")}
-              </ul>
-              ${
-                diagnosis.actions.length > 0
-                  ? `<div class="inline-buttons wrap">
-                      ${diagnosis.actions
-                        .map((action) =>
-                          action.action === "craft-calibrator"
-                            ? `<button data-action="${action.action}">${escapeHtml(action.label)}</button>`
-                            : `<button data-action="${action.action}" data-value="${action.value ?? ""}">${escapeHtml(action.label)}</button>`
-                        )
-                        .join("")}
-                    </div>`
-                  : ""
-              }
-            </article>`
-          : ""
-      }
-
-      ${
-        replayMoments.length > 0
-          ? `<article class="panel">
-              <div class="toolbar">
-                <h3>关键回合回放</h3>
-                <span class="chip">${replayIndex + 1}/${replayMoments.length}</span>
-              </div>
-              <div class="inline-buttons">
-                <button data-action="replay-prev" ${replayIndex <= 0 ? "disabled" : ""}>上一步</button>
-                <button data-action="replay-next" ${replayIndex >= replayMoments.length - 1 ? "disabled" : ""}>下一步</button>
-                <button data-action="replay-focus-active" ${activeReplay ? "" : "disabled"}>定位日志</button>
-              </div>
-              <ul class="touch-list compact">
-                ${replayMoments
-                  .map(
-                    (item, index) => `<li class="touch-item ${index === replayIndex ? "active" : ""}">
-                        <div class="row">
-                          <strong>#${item.seq}</strong>
-                          <span>${eventTypeLabel(item.eventType)}</span>
-                          <span>F${item.floor}</span>
-                        </div>
-                        <p>${escapeHtml(item.summary)}</p>
-                        <div class="row">
-                          <span>${item.reasonTags.length > 0 ? escapeHtml(item.reasonTags.map(reasonText).join(" / ")) : "无原因标签"}</span>
-                          <button data-action="replay-select" data-value="${index}">跳转</button>
-                        </div>
-                      </li>`
-                  )
-                  .join("")}
-              </ul>
-              ${
-                save.settings.advancedDebugView && activeReplay?.ruleId
-                  ? `<p class="hint">当前步骤 rule_id：${escapeHtml(activeReplay.ruleId)}</p>`
-                  : ""
-              }
-            </article>`
-          : ""
-      }
-
-      ${
-        analytics
-          ? `<article class="panel">
-              <h3>近期统计看板</h3>
-              <p class="hint">${escapeHtml(analytics.scopeLabel)}</p>
-              <div class="touch-list compact">
-                <div class="touch-item"><span>完成 / 撤退 / 失败</span><strong>${percentText(analytics.completionRate)} / ${percentText(analytics.retreatRate)} / ${percentText(analytics.failRate)}</strong></div>
-                <div class="touch-item"><span>平均推进</span><strong>${percentText(analytics.avgProgressRate)}</strong></div>
-                <div class="touch-item"><span>平均结算</span><strong>+${Math.round(analytics.avgRetainedGold)}G / +${Math.round(analytics.avgRetainedMaterials)}M</strong></div>
-                <div class="touch-item"><span>样本</span><strong>${analytics.sampleSize} 次出征</strong></div>
-              </div>
-              <div class="touch-list compact">
-                ${
-                  analytics.topReasons.length > 0
-                    ? analytics.topReasons
-                        .map(
-                          (item) =>
-                            `<div class="touch-item"><span>${escapeHtml(reasonText(item.tag))}</span><strong>${item.count} 次</strong><button data-action="filter-log-reason" data-value="${item.tag}">筛日志</button></div>`
-                        )
-                        .join("")
-                    : `<div class="touch-item"><p class="hint">当前样本未记录核心失败标签。</p></div>`
-                }
-              </div>
-              ${
-                analytics.recommendStyle && analytics.primaryReason
-                  ? `<div class="inline-buttons wrap">
-                      <button data-action="apply-analytics-preset" data-value="${analytics.recommendStyle}" class="primary">按统计建议套用${styleLabel(analytics.recommendStyle)}</button>
-                    </div>
-                    <p class="hint">统计主因：${escapeHtml(reasonText(analytics.primaryReason))}</p>`
-                  : ""
-              }
-            </article>`
-          : ""
-      }
     </section>
 
     <section class="panel">
@@ -1773,6 +2296,8 @@ function renderExpeditionTab(): string {
         <div class="inline-buttons">
           <button data-action="set-log-view" data-value="narrative" class="${ui.logView === "narrative" ? "on" : ""}">叙事视图</button>
           <button data-action="set-log-view" data-value="debug" class="${ui.logView === "debug" ? "on" : ""}">调试视图</button>
+          <button data-action="toggle-log-auto-follow" class="${ui.logAutoFollow ? "on" : ""}" ${activeRunSelected ? "" : "disabled"}>${ui.logAutoFollow ? "自动跟随开" : "自动跟随关"}</button>
+          <button data-action="toggle-log-smooth" class="${ui.logSmoothScroll ? "on" : ""}">${ui.logSmoothScroll ? "平滑滚动开" : "平滑滚动关"}</button>
         </div>
       </div>
       <div class="filter-row">
@@ -1810,11 +2335,28 @@ function renderExpeditionTab(): string {
           </select>
         </label>
       </div>
+      <div class="quick-filter-box">
+        <p class="hint">快速筛选</p>
+        <div class="chip-row">
+          ${quickTypeButtons}
+        </div>
+        ${
+          quickReasonButtons.length > 0
+            ? `<div class="chip-row">
+                ${quickReasonButtons}
+                <button data-action="quick-log-reason" data-value="all" class="${ui.logReasonFilter === "all" ? "on" : ""}">原因：全部</button>
+              </div>`
+            : ""
+        }
+      </div>
 
-      <ul class="touch-list logs">
-        ${logItems || `<li class="touch-item"><p class="hint">当前筛选下没有日志事件。</p></li>`}
-      </ul>
+      <div id="log-list" class="touch-list logs" data-log-row-estimate="${logRowEstimate}" data-auto-follow="${autoFollowLiveLog ? "1" : "0"}" data-smooth-scroll="${ui.logSmoothScroll ? "1" : "0"}">
+        ${logItems}
+      </div>
+      <p class="hint">提示：长按（或桌面端右键）打开快捷操作；左滑按类型筛选，右滑定位回放。自动跟随在滚动离底部后会自动关闭，回到底部会自动恢复。</p>
     </section>
+
+    ${renderLogQuickSheet(run, replayMoments)}
   `;
 }
 
@@ -1825,6 +2367,101 @@ function renderPartyTab(): string {
     { id: "profile_balanced", label: "均衡", style: "balanced" },
     { id: "profile_cautious", label: "谨慎", style: "cautious" }
   ];
+  const sortedRules = [...profile.config.rules].sort((a, b) => b.priority - a.priority || a.id.localeCompare(b.id));
+  const activeRuleForEditor =
+    ui.tacticRuleEditorRuleId.length > 0 ? sortedRules.find((rule) => rule.id === ui.tacticRuleEditorRuleId) ?? null : null;
+  const activeRuleRoot = activeRuleForEditor ? getEditableRootLeaves(activeRuleForEditor.when) : null;
+  const activeLeafCount = activeRuleRoot?.leaves.length ?? 0;
+  const activeLeafIndex = clamp(ui.tacticRuleEditorLeafIndex, 0, Math.max(0, activeLeafCount - 1));
+  const editorOperators = ruleEditorOperatorsForFact(ui.tacticRuleEditorFact);
+  const leafSelector =
+    activeRuleRoot && activeRuleRoot.leaves.length > 0
+      ? `<div class="chip-row">
+          ${activeRuleRoot.leaves
+            .map(
+              (leaf, index) =>
+                `<button data-action="rule-editor-select-leaf" data-value="${index}" class="${index === activeLeafIndex ? "on" : ""}">${index + 1}. ${leaf.fact} ${leaf.op}</button>`
+            )
+            .join("")}
+        </div>`
+      : "";
+  const joinerModeText =
+    activeRuleRoot == null
+      ? ""
+      : activeRuleRoot.mode === "all"
+        ? "all（全部满足）"
+        : activeRuleRoot.mode === "any"
+          ? "any（任一满足）"
+          : "single（单叶子）";
+  const ruleConditionEditor =
+    activeRuleForEditor == null
+      ? `<p class="hint">点“编辑条件”可修改某条规则的首个条件叶子（fact/op/value）。复杂条件会保持结构，仅替换首叶子。</p>`
+      : `<div class="rule-editor-card">
+          <div class="row">
+            <strong>条件编辑：${escapeHtml(activeRuleForEditor.id)}</strong>
+            <span class="chip">${activeRuleForEditor.scope === "party" ? "队伍规则" : "角色规则"}</span>
+          </div>
+          <p class="hint">根条件模式：${joinerModeText}</p>
+          ${leafSelector}
+          <div class="inline-buttons wrap">
+            <button data-action="rule-editor-add-leaf" ${activeRuleRoot?.editable === false ? "disabled" : ""}>新增叶子</button>
+            <button data-action="rule-editor-remove-leaf" ${activeRuleRoot && activeRuleRoot.leaves.length > 1 && activeRuleRoot.editable ? "" : "disabled"}>删除当前叶子</button>
+            <button data-action="rule-editor-set-joiner" data-value="all" class="${activeRuleRoot?.mode === "all" ? "on" : ""}" ${activeRuleRoot?.editable ? "" : "disabled"}>设为 all</button>
+            <button data-action="rule-editor-set-joiner" data-value="any" class="${activeRuleRoot?.mode === "any" ? "on" : ""}" ${activeRuleRoot?.editable ? "" : "disabled"}>设为 any</button>
+          </div>
+          <div class="rule-editor-grid">
+            <label class="field">Fact
+              <select id="rule-editor-fact">
+                ${RULE_EDITOR_FACT_OPTIONS.map((fact) => `<option value="${fact}" ${ui.tacticRuleEditorFact === fact ? "selected" : ""}>${fact}</option>`).join("")}
+              </select>
+            </label>
+            <label class="field">Operator
+              <select id="rule-editor-op">
+                ${editorOperators.map((op) => `<option value="${op}" ${ui.tacticRuleEditorOp === op ? "selected" : ""}>${op}</option>`).join("")}
+              </select>
+            </label>
+            <label class="field">Value
+              <input id="rule-editor-value" type="text" value="${escapeHtml(ui.tacticRuleEditorValue)}" placeholder="例如 30 / true / key_a|key_b">
+            </label>
+          </div>
+          <div class="inline-buttons wrap">
+            <button data-action="rule-apply-condition-editor" class="primary">应用条件</button>
+            <button data-action="rule-close-condition-editor">关闭编辑</button>
+          </div>
+          ${
+            ui.tacticRuleEditorError.length > 0
+              ? `<ul class="errors"><li>${escapeHtml(ui.tacticRuleEditorError)}</li></ul>`
+              : `<p class="hint">当前条件：${escapeHtml(summarizeConditionExpr(activeRuleForEditor.when))}</p>`
+          }
+        </div>`;
+  const ruleCards = sortedRules
+    .map((rule) => {
+      const scopeText = rule.scope === "party" ? "队伍" : "角色";
+      const triggerText =
+        rule.trigger === "on_turn_start"
+          ? "回合开始"
+          : rule.trigger === "on_turn_end"
+            ? "回合结束"
+            : rule.trigger === "on_combat_end"
+              ? "战斗结束"
+              : "进入节点";
+      return `<li class="touch-item tactic-rule-card ${rule.enabled ? "enabled" : "disabled"}">
+          <div class="row">
+            <strong>${escapeHtml(rule.id)}</strong>
+            <span class="chip">${scopeText} · ${triggerText}</span>
+          </div>
+          <p>动作：${combatActionLabel(rule.then.action)} · 优先级 ${rule.priority} · 冷却 ${rule.cooldown_turns}</p>
+          <p class="hint">条件：${escapeHtml(summarizeConditionExpr(rule.when))}</p>
+          <div class="inline-buttons wrap">
+            <button data-action="rule-toggle-enabled" data-value="${rule.id}" class="${rule.enabled ? "on" : ""}">${rule.enabled ? "已启用" : "已停用"}</button>
+            <button data-action="rule-open-condition-editor" data-value="${rule.id}" class="${ui.tacticRuleEditorRuleId === rule.id ? "on" : ""}">编辑条件</button>
+            <button data-action="rule-priority-up" data-value="${rule.id}">优先 +10</button>
+            <button data-action="rule-priority-down" data-value="${rule.id}">优先 -10</button>
+            <button data-action="rule-delete" data-value="${rule.id}" class="danger">删除</button>
+          </div>
+        </li>`;
+    })
+    .join("");
 
   return `
     <section class="panel-grid">
@@ -1853,6 +2490,21 @@ function renderPartyTab(): string {
           <div class="touch-item"><span>更新时间</span><strong>${new Date(profile.updatedAt).toLocaleString()}</strong></div>
         </div>
       </article>
+    </section>
+
+    <section class="panel">
+      <h3>触控规则编辑器（中重度）</h3>
+      <p class="hint">可快速增删和调优规则卡片；修改后会自动同步到下方 JSON 编辑器。</p>
+      <div class="inline-buttons wrap">
+        <button data-action="rule-add-template" data-value="retreat_safe">新增：Boss 低血撤退</button>
+        <button data-action="rule-add-template" data-value="elite_focus">新增：精英优先集火</button>
+        <button data-action="rule-add-template" data-value="resource_guard">新增：资源保守模式</button>
+        <button data-action="rules-sort-priority">按优先级整理</button>
+      </div>
+      <ul class="touch-list compact tactic-rule-list">
+        ${ruleCards.length > 0 ? ruleCards : `<li class="touch-item"><p class="hint">暂无规则，先添加模板或切回自动模板。</p></li>`}
+      </ul>
+      ${ruleConditionEditor}
     </section>
 
     <section class="panel">
@@ -2148,12 +2800,12 @@ function renderTabContent(): string {
 }
 
 function render(): void {
-  const tabs: Array<{ id: UiState["tab"]; label: string }> = [
-    { id: "expedition", label: "出征" },
-    { id: "party", label: "队伍" },
-    { id: "town", label: "城镇" },
-    { id: "storage", label: "仓库" },
-    { id: "settings", label: "设置" }
+  const tabs: Array<{ id: UiState["tab"]; label: string; dock: string }> = [
+    { id: "expedition", label: "出征", dock: "E 出征" },
+    { id: "party", label: "队伍", dock: "P 队伍" },
+    { id: "town", label: "城镇", dock: "T 城镇" },
+    { id: "storage", label: "仓库", dock: "S 仓库" },
+    { id: "settings", label: "设置", dock: "C 设置" }
   ];
 
   app.innerHTML = `
@@ -2181,20 +2833,365 @@ function render(): void {
           .join("")}
       </nav>
 
-      <main>
-        ${renderTabContent()}
-      </main>
+	      <main>
+	        ${renderTabContent()}
+	      </main>
 
-      <footer class="foot">
-        <button data-action="wipe-save" class="danger">重置存档</button>
-      </footer>
+        <nav class="nav-dock">
+          ${tabs
+            .map(
+              (tab) =>
+                `<button data-action="switch-tab" data-value="${tab.id}" class="${ui.tab === tab.id ? "on" : ""}">${tab.dock}</button>`
+            )
+            .join("")}
+        </nav>
+
+	      <footer class="foot">
+	        <button data-action="wipe-save" class="danger">重置存档</button>
+	      </footer>
     </div>
   `;
+
+  const logList = app.querySelector<HTMLElement>("#log-list");
+  if (logList) {
+    const maxScrollTop = Math.max(0, logList.scrollHeight - logList.clientHeight);
+    const nextTop = clamp(Math.floor(ui.logScrollTop), 0, maxScrollTop);
+    if (Math.abs(logList.scrollTop - nextTop) > 1) {
+      const smooth = ui.logSmoothScroll && typeof logList.scrollTo === "function";
+      programmaticLogScrollUntil = Date.now() + PROGRAMMATIC_LOG_SCROLL_MS;
+      if (smooth) {
+        logList.scrollTo({
+          top: nextTop,
+          behavior: "smooth"
+        });
+      } else {
+        logList.scrollTop = nextTop;
+      }
+    }
+    if (ui.logViewportHeight !== logList.clientHeight) {
+      ui.logViewportHeight = Math.max(120, logList.clientHeight);
+    }
+  }
 }
 
 function setEditorFromActiveProfile(): void {
   const profile = getActiveProfile(save.tacticsProfiles, save.activePartyTacticProfileId);
-  ui = { ...ui, editorText: JSON.stringify(profile.config, null, 2), editorErrors: [] };
+  ui = { ...ui, editorText: JSON.stringify(profile.config, null, 2), editorErrors: [], tacticRuleEditorError: "" };
+}
+
+function markProfileAsCustom(profile: SaveData["tacticsProfiles"][number]): void {
+  profile.style = "custom";
+  profile.name = "自定义";
+  profile.updatedAt = Date.now();
+}
+
+function updateActiveProfileConfig(updater: (config: TacticsConfig) => TacticsConfig, successBanner: string): void {
+  const profile = getActiveProfile(save.tacticsProfiles, save.activePartyTacticProfileId);
+  const nextConfig = updater(cloneJson(profile.config));
+  const errors = validateTacticsConfig(nextConfig);
+  if (errors.length > 0) {
+    ui = { ...ui, editorErrors: errors };
+    setBanner("触控规则编辑失败：配置未通过校验。");
+    return;
+  }
+
+  profile.config = nextConfig;
+  markProfileAsCustom(profile);
+  save.activePartyTacticProfileId = profile.id;
+  persistSave(save);
+  setEditorFromActiveProfile();
+  setBanner(successBanner);
+}
+
+function createRuleId(base: string, existingIds: Set<string>): string {
+  let candidate = base
+    .toLowerCase()
+    .replace(/[^a-z0-9_]/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  if (candidate.length < 3) candidate = "rule";
+  if (!/^[a-z]/.test(candidate)) candidate = `r_${candidate}`;
+  if (!existingIds.has(candidate)) return candidate;
+  let index = 2;
+  while (existingIds.has(`${candidate}_${index}`)) {
+    index += 1;
+  }
+  return `${candidate}_${index}`;
+}
+
+type RuleTemplateKey = "retreat_safe" | "elite_focus" | "resource_guard";
+
+function createRuleTemplate(template: RuleTemplateKey, existingIds: Set<string>): TacticsRule {
+  if (template === "retreat_safe") {
+    return {
+      id: createRuleId("retreat_hp_guard", existingIds),
+      scope: "party",
+      trigger: "on_turn_start",
+      priority: 860,
+      when: {
+        all: [
+          { fact: "ally_min_stress_pct", op: "<=", value: 30 },
+          { fact: "combat_is_boss", op: "==", value: true }
+        ]
+      },
+      then: { action: "retreat_combat" },
+      cooldown_turns: 2,
+      enabled: true
+    };
+  }
+
+  if (template === "elite_focus") {
+    return {
+      id: createRuleId("focus_elite_target", existingIds),
+      scope: "character",
+      trigger: "on_turn_start",
+      priority: 720,
+      when: {
+        all: [
+          { fact: "enemy_is_elite", op: "==", value: true },
+          { fact: "enemy_count_alive", op: ">=", value: 1 }
+        ]
+      },
+      then: { action: "mark_priority_target" },
+      cooldown_turns: 1,
+      enabled: true
+    };
+  }
+
+  return {
+    id: createRuleId("resource_guard_mode", existingIds),
+    scope: "character",
+    trigger: "on_turn_start",
+    priority: 640,
+    when: {
+      all: [
+        { fact: "self_resource_pct", op: "<=", value: 25 },
+        { fact: "turn_index", op: ">=", value: 2 }
+      ]
+    },
+    then: { action: "save_resource_mode" },
+    cooldown_turns: 1,
+    enabled: true
+  };
+}
+
+function summarizeConditionExpr(expr: ConditionExpr): string {
+  if ("fact" in expr) {
+    const valueText = Array.isArray(expr.value) ? expr.value.join("|") : String(expr.value);
+    return `${expr.fact} ${expr.op} ${valueText}`;
+  }
+  if ("all" in expr) {
+    const parts = expr.all.slice(0, 2).map((item) => summarizeConditionExpr(item));
+    const suffix = expr.all.length > 2 ? ` 等${expr.all.length}项` : "";
+    return parts.join(" 且 ") + suffix;
+  }
+  if ("any" in expr) {
+    const parts = expr.any.slice(0, 2).map((item) => summarizeConditionExpr(item));
+    const suffix = expr.any.length > 2 ? ` 等${expr.any.length}项` : "";
+    return parts.join(" 或 ") + suffix;
+  }
+  return `非(${summarizeConditionExpr(expr.not)})`;
+}
+
+function ruleEditorOperatorsForFact(fact: Fact): Operator[] {
+  if (RULE_EDITOR_NUMERIC_FACTS.has(fact)) return ["==", "!=", "<", "<=", ">", ">="];
+  if (RULE_EDITOR_BOOLEAN_FACTS.has(fact)) return ["==", "!="];
+  return ["==", "!=", "contains", "in"];
+}
+
+function ruleEditorDefaultValueForFact(fact: Fact, op: Operator): string {
+  if (RULE_EDITOR_BOOLEAN_FACTS.has(fact)) return "true";
+  if (RULE_EDITOR_NUMERIC_FACTS.has(fact)) return "30";
+  if (fact === "time_window") return op === "in" ? "day|night" : "night";
+  if (op === "in") return "target_a|target_b";
+  return "target";
+}
+
+function stringifyConditionValue(value: number | boolean | string | readonly string[]): string {
+  if (Array.isArray(value)) return value.join("|");
+  return String(value);
+}
+
+function normalizeConditionValueInput(raw: string): string {
+  return raw.trim();
+}
+
+function parseRuleEditorValue(
+  fact: Fact,
+  op: Operator,
+  raw: string
+): { ok: true; value: number | boolean | string | readonly string[] } | { ok: false; error: string } {
+  const normalized = normalizeConditionValueInput(raw);
+  if (normalized.length <= 0) {
+    return { ok: false, error: "条件值不能为空。" };
+  }
+
+  if (RULE_EDITOR_NUMERIC_FACTS.has(fact)) {
+    const parsed = Number(normalized);
+    if (!Number.isFinite(parsed)) {
+      return { ok: false, error: "该条件需要数字值。" };
+    }
+    return { ok: true, value: parsed };
+  }
+
+  if (RULE_EDITOR_BOOLEAN_FACTS.has(fact)) {
+    const lower = normalized.toLowerCase();
+    if (lower === "true" || lower === "1" || lower === "yes") return { ok: true, value: true };
+    if (lower === "false" || lower === "0" || lower === "no") return { ok: true, value: false };
+    return { ok: false, error: "布尔值仅支持 true/false（或 1/0）。" };
+  }
+
+  if (op === "in") {
+    const entries = normalized
+      .split("|")
+      .map((part) => part.trim())
+      .filter((part) => part.length > 0);
+    if (entries.length <= 0) {
+      return { ok: false, error: "in 操作符至少需要一个候选值，可用 | 分隔多个值。" };
+    }
+    return { ok: true, value: entries };
+  }
+
+  return { ok: true, value: normalized };
+}
+
+type RuleRootMode = "single" | "all" | "any";
+
+interface RootLeafEdit {
+  mode: RuleRootMode;
+  leaves: ConditionLeaf[];
+  editable: boolean;
+}
+
+function cloneConditionLeaf(leaf: ConditionLeaf): ConditionLeaf {
+  const value = Array.isArray(leaf.value) ? [...leaf.value] : leaf.value;
+  return {
+    fact: leaf.fact,
+    op: leaf.op,
+    value
+  };
+}
+
+function getFirstConditionLeaf(expr: ConditionExpr): { fact: Fact; op: Operator; value: number | boolean | string | readonly string[] } | null {
+  if ("fact" in expr) return expr;
+  if ("all" in expr) {
+    for (const child of expr.all) {
+      const found = getFirstConditionLeaf(child);
+      if (found) return found;
+    }
+    return null;
+  }
+  if ("any" in expr) {
+    for (const child of expr.any) {
+      const found = getFirstConditionLeaf(child);
+      if (found) return found;
+    }
+    return null;
+  }
+  return getFirstConditionLeaf(expr.not);
+}
+
+function replaceFirstConditionLeaf(expr: ConditionExpr, replacement: ConditionExpr): { expr: ConditionExpr; replaced: boolean } {
+  if ("fact" in expr) {
+    return { expr: replacement, replaced: true };
+  }
+  if ("all" in expr) {
+    const nextChildren: ConditionExpr[] = [];
+    let replaced = false;
+    expr.all.forEach((child) => {
+      if (replaced) {
+        nextChildren.push(child);
+        return;
+      }
+      const result = replaceFirstConditionLeaf(child, replacement);
+      nextChildren.push(result.expr);
+      replaced = result.replaced;
+    });
+    return { expr: { all: nextChildren }, replaced };
+  }
+  if ("any" in expr) {
+    const nextChildren: ConditionExpr[] = [];
+    let replaced = false;
+    expr.any.forEach((child) => {
+      if (replaced) {
+        nextChildren.push(child);
+        return;
+      }
+      const result = replaceFirstConditionLeaf(child, replacement);
+      nextChildren.push(result.expr);
+      replaced = result.replaced;
+    });
+    return { expr: { any: nextChildren }, replaced };
+  }
+  const nested = replaceFirstConditionLeaf(expr.not, replacement);
+  return { expr: { not: nested.expr }, replaced: nested.replaced };
+}
+
+function getEditableRootLeaves(expr: ConditionExpr): RootLeafEdit {
+  if ("fact" in expr) {
+    return { mode: "single", leaves: [cloneConditionLeaf(expr)], editable: true };
+  }
+  if ("all" in expr) {
+    const leaves = expr.all.filter((item): item is ConditionLeaf => "fact" in item).map((item) => cloneConditionLeaf(item));
+    return { mode: "all", leaves, editable: leaves.length === expr.all.length && leaves.length > 0 };
+  }
+  if ("any" in expr) {
+    const leaves = expr.any.filter((item): item is ConditionLeaf => "fact" in item).map((item) => cloneConditionLeaf(item));
+    return { mode: "any", leaves, editable: leaves.length === expr.any.length && leaves.length > 0 };
+  }
+  const first = getFirstConditionLeaf(expr);
+  return first ? { mode: "single", leaves: [cloneConditionLeaf(first)], editable: false } : { mode: "single", leaves: [], editable: false };
+}
+
+function buildRootCondition(mode: RuleRootMode, leaves: ConditionLeaf[]): ConditionExpr {
+  const safeLeaves: ConditionLeaf[] =
+    leaves.length > 0
+      ? leaves.map((leaf) => cloneConditionLeaf(leaf))
+      : [
+          {
+            fact: "self_stress_pct",
+            op: "<=",
+            value: 30
+          }
+        ];
+  if (mode === "single") return safeLeaves[0];
+  if (mode === "all") return { all: safeLeaves };
+  return { any: safeLeaves };
+}
+
+function openRuleConditionEditor(ruleId: string, preferredLeafIndex = 0): void {
+  const profile = getActiveProfile(save.tacticsProfiles, save.activePartyTacticProfileId);
+  const rule = profile.config.rules.find((item) => item.id === ruleId);
+  if (!rule) {
+    ui = { ...ui, tacticRuleEditorError: "未找到目标规则。" };
+    return;
+  }
+  const root = getEditableRootLeaves(rule.when);
+  const leafIndex = clamp(preferredLeafIndex, 0, Math.max(0, root.leaves.length - 1));
+  const leaf = root.leaves[leafIndex] ?? getFirstConditionLeaf(rule.when);
+  const fact: Fact = leaf?.fact ?? "self_stress_pct";
+  const operators = ruleEditorOperatorsForFact(fact);
+  const op: Operator = leaf && operators.includes(leaf.op) ? leaf.op : operators[0];
+  const value = leaf ? stringifyConditionValue(leaf.value) : ruleEditorDefaultValueForFact(fact, op);
+
+  ui = {
+    ...ui,
+    tacticRuleEditorRuleId: rule.id,
+    tacticRuleEditorLeafIndex: leafIndex,
+    tacticRuleEditorFact: fact,
+    tacticRuleEditorOp: op,
+    tacticRuleEditorValue: value,
+    tacticRuleEditorError: root.editable ? "" : "该规则条件结构较复杂，当前只支持替换首个条件叶子。"
+  };
+}
+
+function closeRuleConditionEditor(): void {
+  ui = {
+    ...ui,
+    tacticRuleEditorRuleId: "",
+    tacticRuleEditorLeafIndex: 0,
+    tacticRuleEditorError: ""
+  };
 }
 
 function applyPreset(style: "aggressive" | "balanced" | "cautious"): void {
@@ -2448,16 +3445,48 @@ function resumeActiveRun(): void {
   setBanner("探险已恢复，计时继续推进。");
 }
 
-function fastForwardActiveRun(): void {
-  if (!save.activeRunPlan) {
+function setActiveRunSpeedMultiplier(multiplier: ActiveRunSpeedMultiplier): void {
+  const plan = save.activeRunPlan;
+  if (!plan) {
     setBanner("当前没有进行中的探险。");
     return;
   }
-
-  const finished = finalizeActiveRunIfDue(true);
-  if (!finished) {
-    setBanner("加速返航失败，请重试。");
+  if (!ACTIVE_RUN_SPEED_OPTIONS.includes(multiplier)) return;
+  if (multiplier === plan.runtimeSpeedMultiplier) {
+    setBanner(`当前倍率已是 ${multiplier}x。`);
+    return;
   }
+
+  const now = runtimeNow();
+  const elapsedMs = planElapsedMs(plan, now);
+  const unlockedEventCount = resolvedUnlockedEventCount(plan, elapsedMs);
+  const durationMs = planDurationMs(plan);
+  const remainingMs = Math.max(0, durationMs - elapsedMs);
+  if (remainingMs <= 0) {
+    finalizeActiveRunIfDue();
+    return;
+  }
+
+  const previousMultiplier = plan.runtimeSpeedMultiplier;
+  const baselineRemainingMs = remainingMs * plan.runtimeSpeedMultiplier;
+  const acceleratedRemainingMs = Math.max(1, Math.round(baselineRemainingMs / multiplier));
+  const nextDurationMs = Math.max(1000, Math.round(elapsedMs + acceleratedRemainingMs));
+  const nextFinishAt = plan.startedAt + nextDurationMs;
+  const retimedRun = retimeRunForDuration(plan.run, plan.startedAt, nextFinishAt);
+
+  save.activeRunPlan = {
+    ...plan,
+    run: retimedRun,
+    finishAt: nextFinishAt,
+    runtimeSpeedMultiplier: multiplier,
+    unlockedEventCount
+  };
+  persistSave(save);
+
+  const snapshot = getActiveRunSnapshot();
+  const remainText = snapshot ? formatCountdown(snapshot.remainingMs) : formatCountdown(acceleratedRemainingMs);
+  const verb = multiplier > previousMultiplier ? "加速至" : "调整为";
+  setBanner(`探险倍率已${verb} ${multiplier}x，预计剩余 ${remainText}。`);
 }
 
 function exportSaveBackup(): void {
@@ -2491,6 +3520,11 @@ function importSaveBackup(): void {
     logView: save.settings.defaultLogView,
     logTypeFilter: "all",
     logReasonFilter: "all",
+    logScrollTop: 0,
+    logVirtualRow: 0,
+    logQuickSeq: 0,
+    logQuickType: "all",
+    logQuickReason: "all",
     editorText: initialEditorText(),
     editorErrors: [],
     importErrors: []
@@ -2605,6 +3639,8 @@ function startRun(): void {
       run: timedRun,
       startedAt,
       finishAt,
+      runtimeSpeedMultiplier: 1,
+      unlockedEventCount: 0,
       pausedAt: null,
       pausedAccumMs: 0,
       postRunDelta
@@ -2620,7 +3656,12 @@ function startRun(): void {
     expandedLogSeq: 0,
     tab: "expedition",
     logTypeFilter: "all",
-    logReasonFilter: "all"
+    logReasonFilter: "all",
+    logScrollTop: 0,
+    logVirtualRow: 0,
+    logQuickSeq: 0,
+    logQuickType: "all",
+    logQuickReason: "all"
   };
 
   setBanner(`出征已开始（${timeScaleLabel(save.settings.expeditionTimeScale)}）：预计 ${formatCountdown(durationMs)} 后返航。`);
@@ -2629,17 +3670,29 @@ function startRun(): void {
 function handleClick(event: MouseEvent): void {
   const target = event.target;
   if (!(target instanceof HTMLElement)) return;
-  const button = target.closest("button[data-action]");
-  if (!(button instanceof HTMLButtonElement)) return;
+  const actionNode = target.closest("[data-action]");
+  if (!(actionNode instanceof HTMLElement)) return;
+  if (actionNode instanceof HTMLButtonElement && actionNode.disabled) return;
 
-  const action = button.dataset.action;
-  const value = button.dataset.value ?? "";
-  const questId = button.dataset.questId ?? "";
+  const action = actionNode.dataset.action;
+  const value = actionNode.dataset.value ?? "";
+  const questId = actionNode.dataset.questId ?? "";
   finalizeActiveRunIfDue();
   const blockedWhileRunning = new Set([
     "start-run",
     "apply-preset",
     "apply-rules",
+    "rule-add-template",
+    "rule-toggle-enabled",
+    "rule-priority-up",
+    "rule-priority-down",
+    "rule-delete",
+    "rules-sort-priority",
+    "rule-apply-condition-editor",
+    "rule-editor-select-leaf",
+    "rule-editor-add-leaf",
+    "rule-editor-remove-leaf",
+    "rule-editor-set-joiner",
     "buy-item",
     "craft-calibrator",
     "upgrade-infirmary",
@@ -2666,14 +3719,134 @@ function handleClick(event: MouseEvent): void {
   const replayIndex = clampReplayIndex(ui.replayIndex, replayMoments.length);
 
   if (action === "switch-tab") {
-    ui = { ...ui, tab: value as UiState["tab"] };
-    if (value === "party") {
+    const nextTab = value as UiState["tab"];
+    ui =
+      nextTab === "expedition"
+        ? { ...ui, tab: nextTab }
+        : {
+            ...ui,
+            tab: nextTab,
+            logQuickSeq: 0,
+            logQuickType: "all",
+            logQuickReason: "all"
+          };
+    if (nextTab === "party") {
       markOnboardingStep("openedPartyTab");
     }
+  } else if (action === "toggle-expedition-panel") {
+    const panelId = value.trim();
+    if (panelId.length > 0) {
+      const collapsed = ui.collapsedExpeditionPanels.includes(panelId);
+      const nextCollapsed = collapsed
+        ? ui.collapsedExpeditionPanels.filter((item) => item !== panelId)
+        : [...ui.collapsedExpeditionPanels, panelId];
+      ui = {
+        ...ui,
+        tab: "expedition",
+        collapsedExpeditionPanels: nextCollapsed,
+        logQuickSeq: 0,
+        logQuickType: "all",
+        logQuickReason: "all"
+      };
+    }
   } else if (action === "set-log-view") {
-    ui = { ...ui, logView: value === "debug" ? "debug" : "narrative", expandedLogSeq: 0 };
+    const nextLogView: LogView = value === "debug" ? "debug" : "narrative";
+    ui = {
+      ...ui,
+      logView: nextLogView,
+      expandedLogSeq: 0,
+      logVirtualRow: logVirtualRowByTop(ui.logScrollTop, nextLogView),
+      logQuickSeq: 0,
+      logQuickType: "all",
+      logQuickReason: "all"
+    };
     if (value === "debug") {
       markOnboardingStep("viewedDebugLog");
+    }
+  } else if (action === "toggle-log-auto-follow") {
+    const nextAutoFollow = !ui.logAutoFollow;
+    const selectedRunForFollow = getSelectedRun();
+    if (nextAutoFollow && selectedRunForFollow && selectedRunForFollow.events.length > 0) {
+      const latest = selectedRunForFollow.events[selectedRunForFollow.events.length - 1];
+      const latestTop = approximateLogScrollTopForSeq(selectedRunForFollow, latest.seq, ui.logView);
+      ui = {
+        ...ui,
+        tab: "expedition",
+        logAutoFollow: true,
+        expandedLogSeq: latest.seq,
+        logScrollTop: latestTop,
+        logVirtualRow: logVirtualRowByTop(latestTop, ui.logView)
+      };
+    } else {
+      ui = {
+        ...ui,
+        logAutoFollow: nextAutoFollow
+      };
+    }
+  } else if (action === "toggle-log-smooth") {
+    ui = {
+      ...ui,
+      logSmoothScroll: !ui.logSmoothScroll
+    };
+  } else if (action === "quick-log-type") {
+    const nextType = value as EventType | "all";
+    ui = {
+      ...ui,
+      tab: "expedition",
+      logTypeFilter: nextType || "all",
+      expandedLogSeq: 0,
+      logScrollTop: 0,
+      logVirtualRow: 0,
+      logAutoFollow: false,
+      logQuickSeq: 0,
+      logQuickType: "all",
+      logQuickReason: "all"
+    };
+  } else if (action === "quick-log-reason") {
+    const nextReason = value === "all" ? "all" : (value as ReasonTag);
+    ui = {
+      ...ui,
+      tab: "expedition",
+      logReasonFilter: nextReason,
+      expandedLogSeq: 0,
+      logScrollTop: 0,
+      logVirtualRow: 0,
+      logAutoFollow: false,
+      logQuickSeq: 0,
+      logQuickType: "all",
+      logQuickReason: "all"
+    };
+  } else if (action === "clear-log-filters") {
+    ui = {
+      ...ui,
+      tab: "expedition",
+      logTypeFilter: "all",
+      logReasonFilter: "all",
+      expandedLogSeq: 0,
+      logScrollTop: 0,
+      logVirtualRow: 0,
+      logQuickSeq: 0,
+      logQuickType: "all",
+      logQuickReason: "all"
+    };
+    setBanner("日志筛选已清空。");
+  } else if (action === "jump-latest-log") {
+    if (selectedRun && selectedRun.events.length > 0) {
+      const latest = selectedRun.events[selectedRun.events.length - 1];
+      const latestTop = approximateLogScrollTopForSeq(selectedRun, latest.seq, ui.logView);
+      ui = {
+        ...ui,
+        tab: "expedition",
+        expandedLogSeq: latest.seq,
+        selectedRunId: selectedRun.runId,
+        logAutoFollow: true,
+        logScrollTop: latestTop,
+        logVirtualRow: logVirtualRowByTop(latestTop, ui.logView),
+        logQuickSeq: 0,
+        logQuickType: "all",
+        logQuickReason: "all"
+      };
+      setBanner(`已定位到最新事件 #${latest.seq}。`);
     }
   } else if (action === "start-run") {
     startRun();
@@ -2686,6 +3859,195 @@ function handleClick(event: MouseEvent): void {
   } else if (action === "reset-rules") {
     setEditorFromActiveProfile();
     setBanner("已重置为当前模板规则。");
+  } else if (action === "rule-open-condition-editor") {
+    const ruleId = value.trim();
+    if (ruleId.length > 0) {
+      openRuleConditionEditor(ruleId);
+      setBanner(`已打开规则 ${ruleId} 条件编辑。`);
+    }
+  } else if (action === "rule-editor-select-leaf") {
+    const ruleId = ui.tacticRuleEditorRuleId.trim();
+    const leafIndex = Number(value);
+    if (ruleId.length > 0 && Number.isFinite(leafIndex)) {
+      openRuleConditionEditor(ruleId, Math.max(0, Math.floor(leafIndex)));
+    }
+  } else if (action === "rule-editor-add-leaf") {
+    const ruleId = ui.tacticRuleEditorRuleId.trim();
+    if (ruleId.length > 0) {
+      const newLeaf: ConditionLeaf = { fact: "self_stress_pct", op: "<=", value: 30 };
+      updateActiveProfileConfig(
+        (config) => ({
+          ...config,
+          rules: config.rules.map((rule) => {
+            if (rule.id !== ruleId) return rule;
+            const root = getEditableRootLeaves(rule.when);
+            if (!root.editable) return rule;
+            const nextLeaves = [...root.leaves, newLeaf];
+            const nextMode: RuleRootMode = root.mode === "single" ? "all" : root.mode;
+            return {
+              ...rule,
+              when: buildRootCondition(nextMode, nextLeaves)
+            };
+          })
+        }),
+        `规则 ${ruleId} 已新增条件叶子。`
+      );
+      openRuleConditionEditor(ruleId, ui.tacticRuleEditorLeafIndex + 1);
+    }
+  } else if (action === "rule-editor-remove-leaf") {
+    const ruleId = ui.tacticRuleEditorRuleId.trim();
+    if (ruleId.length > 0) {
+      const targetIndex = Math.max(0, Math.floor(ui.tacticRuleEditorLeafIndex));
+      updateActiveProfileConfig(
+        (config) => ({
+          ...config,
+          rules: config.rules.map((rule) => {
+            if (rule.id !== ruleId) return rule;
+            const root = getEditableRootLeaves(rule.when);
+            if (!root.editable || root.leaves.length <= 1) return rule;
+            const nextLeaves = root.leaves.filter((_, index) => index !== targetIndex);
+            const nextMode: RuleRootMode = nextLeaves.length <= 1 ? "single" : root.mode;
+            return {
+              ...rule,
+              when: buildRootCondition(nextMode, nextLeaves)
+            };
+          })
+        }),
+        `规则 ${ruleId} 已删除条件叶子。`
+      );
+      openRuleConditionEditor(ruleId, Math.max(0, targetIndex - 1));
+    }
+  } else if (action === "rule-editor-set-joiner") {
+    const ruleId = ui.tacticRuleEditorRuleId.trim();
+    if (ruleId.length > 0 && (value === "all" || value === "any")) {
+      const targetMode = value as RuleRootMode;
+      updateActiveProfileConfig(
+        (config) => ({
+          ...config,
+          rules: config.rules.map((rule) => {
+            if (rule.id !== ruleId) return rule;
+            const root = getEditableRootLeaves(rule.when);
+            if (!root.editable) return rule;
+            return {
+              ...rule,
+              when: buildRootCondition(targetMode, root.leaves)
+            };
+          })
+        }),
+        `规则 ${ruleId} 根条件已切换为 ${targetMode}。`
+      );
+      openRuleConditionEditor(ruleId, ui.tacticRuleEditorLeafIndex);
+    }
+  } else if (action === "rule-close-condition-editor") {
+    closeRuleConditionEditor();
+  } else if (action === "rule-apply-condition-editor") {
+    const ruleId = ui.tacticRuleEditorRuleId.trim();
+    if (ruleId.length <= 0) {
+      ui = { ...ui, tacticRuleEditorError: "请先选择要编辑的规则。" };
+    } else {
+      const operators = ruleEditorOperatorsForFact(ui.tacticRuleEditorFact);
+      if (!operators.includes(ui.tacticRuleEditorOp)) {
+        ui = { ...ui, tacticRuleEditorError: "当前操作符与 Fact 不匹配。" };
+      } else {
+        const parsed = parseRuleEditorValue(ui.tacticRuleEditorFact, ui.tacticRuleEditorOp, ui.tacticRuleEditorValue);
+        if (!parsed.ok) {
+          ui = { ...ui, tacticRuleEditorError: parsed.error };
+        } else {
+          const replacement: ConditionLeaf = {
+            fact: ui.tacticRuleEditorFact,
+            op: ui.tacticRuleEditorOp,
+            value: parsed.value
+          };
+          updateActiveProfileConfig(
+            (config) => ({
+              ...config,
+              rules: config.rules.map((rule) => {
+                if (rule.id !== ruleId) return rule;
+                const root = getEditableRootLeaves(rule.when);
+                if (root.editable && root.leaves.length > 0) {
+                  const targetIndex = clamp(ui.tacticRuleEditorLeafIndex, 0, root.leaves.length - 1);
+                  const nextLeaves = root.leaves.map((leaf, index) => (index === targetIndex ? replacement : leaf));
+                  return {
+                    ...rule,
+                    when: buildRootCondition(root.mode, nextLeaves)
+                  };
+                }
+                const nextWhen = replaceFirstConditionLeaf(rule.when, replacement);
+                return {
+                  ...rule,
+                  when: nextWhen.replaced ? nextWhen.expr : replacement
+                };
+              })
+            }),
+            `规则 ${ruleId} 条件已更新。`
+          );
+          openRuleConditionEditor(ruleId);
+        }
+      }
+    }
+  } else if (action === "rule-add-template") {
+    if (value === "retreat_safe" || value === "elite_focus" || value === "resource_guard") {
+      const templateKey = value as RuleTemplateKey;
+      const profile = getActiveProfile(save.tacticsProfiles, save.activePartyTacticProfileId);
+      const existingIds = new Set(profile.config.rules.map((rule) => rule.id));
+      const nextRule = createRuleTemplate(templateKey, existingIds);
+      const templateLabel =
+        templateKey === "retreat_safe" ? "Boss 低血撤退" : templateKey === "elite_focus" ? "精英优先集火" : "资源保守模式";
+      updateActiveProfileConfig(
+        (config) => ({
+          ...config,
+          rules: [...config.rules, nextRule]
+        }),
+        `已新增规则模板：${templateLabel}。`
+      );
+    }
+  } else if (action === "rule-toggle-enabled") {
+    const ruleId = value.trim();
+    if (ruleId.length > 0) {
+      updateActiveProfileConfig(
+        (config) => ({
+          ...config,
+          rules: config.rules.map((rule) => (rule.id === ruleId ? { ...rule, enabled: !rule.enabled } : rule))
+        }),
+        `规则 ${ruleId} 已切换启用状态。`
+      );
+    }
+  } else if (action === "rule-priority-up" || action === "rule-priority-down") {
+    const ruleId = value.trim();
+    if (ruleId.length > 0) {
+      const delta = action === "rule-priority-up" ? 10 : -10;
+      updateActiveProfileConfig(
+        (config) => ({
+          ...config,
+          rules: config.rules.map((rule) =>
+            rule.id === ruleId ? { ...rule, priority: clamp(rule.priority + delta, 0, 1000) } : rule
+          )
+        }),
+        `规则 ${ruleId} 优先级已调整。`
+      );
+    }
+  } else if (action === "rule-delete") {
+    const ruleId = value.trim();
+    if (ruleId.length > 0) {
+      updateActiveProfileConfig(
+        (config) => ({
+          ...config,
+          rules: config.rules.filter((rule) => rule.id !== ruleId)
+        }),
+        `规则 ${ruleId} 已删除。`
+      );
+      if (ui.tacticRuleEditorRuleId === ruleId) {
+        closeRuleConditionEditor();
+      }
+    }
+  } else if (action === "rules-sort-priority") {
+    updateActiveProfileConfig(
+      (config) => ({
+        ...config,
+        rules: [...config.rules].sort((a, b) => b.priority - a.priority || a.id.localeCompare(b.id))
+      }),
+      "规则已按优先级整理。"
+    );
   } else if (action === "buy-item") {
     buyItem(value);
   } else if (action === "craft-calibrator") {
@@ -2716,7 +4078,13 @@ function handleClick(event: MouseEvent): void {
       selectedRunId: runWithReason?.runId ?? ui.selectedRunId,
       replayIndex: 0,
       expandedLogSeq: 0,
-      logReasonFilter: reason
+      logReasonFilter: reason,
+      logAutoFollow: false,
+      logScrollTop: 0,
+      logVirtualRow: 0,
+      logQuickSeq: 0,
+      logQuickType: "all",
+      logQuickReason: "all"
     };
     setBanner(`已筛选日志原因：${reasonText(reason)}。`);
   } else if (action === "apply-failure-assist") {
@@ -2724,7 +4092,19 @@ function handleClick(event: MouseEvent): void {
       applyFailureAssist(value, questId);
     }
   } else if (action === "view-run") {
-    ui = { ...ui, selectedRunId: value, replayIndex: 0, expandedLogSeq: 0, tab: "expedition" };
+    ui = {
+      ...ui,
+      selectedRunId: value,
+      replayIndex: 0,
+      expandedLogSeq: 0,
+      tab: "expedition",
+      logAutoFollow: false,
+      logScrollTop: 0,
+      logVirtualRow: 0,
+      logQuickSeq: 0,
+      logQuickType: "all",
+      logQuickReason: "all"
+    };
   } else if (action === "guide-open-party") {
     ui = { ...ui, tab: "party" };
     markOnboardingStep("openedPartyTab");
@@ -2733,7 +4113,14 @@ function handleClick(event: MouseEvent): void {
   } else if (action === "guide-start-run") {
     startRun();
   } else if (action === "guide-open-debug-log") {
-    ui = { ...ui, tab: "expedition", logView: "debug" };
+    ui = {
+      ...ui,
+      tab: "expedition",
+      logView: "debug",
+      logQuickSeq: 0,
+      logQuickType: "all",
+      logQuickReason: "all"
+    };
     markOnboardingStep("viewedDebugLog");
   } else if (action === "dismiss-onboarding") {
     save.settings = { ...save.settings, showOnboardingCard: false };
@@ -2755,8 +4142,11 @@ function handleClick(event: MouseEvent): void {
     pauseActiveRun();
   } else if (action === "resume-run") {
     resumeActiveRun();
-  } else if (action === "fast-forward-run") {
-    fastForwardActiveRun();
+  } else if (action === "set-run-speed") {
+    const multiplier = Number(value);
+    if (multiplier === 1 || multiplier === 2 || multiplier === 4 || multiplier === 8) {
+      setActiveRunSpeedMultiplier(multiplier);
+    }
   } else if (action === "set-time-scale") {
     const scale = Number(value);
     if (scale === 1 || scale === 4 || scale === 10) {
@@ -2774,13 +4164,19 @@ function handleClick(event: MouseEvent): void {
       const nextIndex = clampReplayIndex(targetIndex, replayMoments.length);
       const step = replayMoments[nextIndex];
       if (step) {
+        const stepTop = approximateLogScrollTopForSeq(selectedRun, step.seq, ui.logView);
         ui = {
           ...ui,
           replayIndex: nextIndex,
           tab: "expedition",
           expandedLogSeq: step.seq,
           logTypeFilter: step.eventType,
-          logReasonFilter: step.reasonTags[0] ?? "all"
+          logReasonFilter: step.reasonTags[0] ?? "all",
+          logScrollTop: stepTop,
+          logVirtualRow: logVirtualRowByTop(stepTop, ui.logView),
+          logQuickSeq: 0,
+          logQuickType: "all",
+          logQuickReason: "all"
         };
         setBanner(`回放已定位到 #${step.seq}。`);
       }
@@ -2788,18 +4184,98 @@ function handleClick(event: MouseEvent): void {
   } else if (action === "replay-focus-active") {
     const step = replayMoments[replayIndex];
     if (step) {
+      const stepTop = approximateLogScrollTopForSeq(selectedRun, step.seq, ui.logView);
       ui = {
         ...ui,
         tab: "expedition",
         expandedLogSeq: step.seq,
         logTypeFilter: step.eventType,
-        logReasonFilter: step.reasonTags[0] ?? "all"
+        logReasonFilter: step.reasonTags[0] ?? "all",
+        logScrollTop: stepTop,
+        logVirtualRow: logVirtualRowByTop(stepTop, ui.logView),
+        logQuickSeq: 0,
+        logQuickType: "all",
+        logQuickReason: "all"
       };
       setBanner(`已按回放步骤过滤日志：#${step.seq} ${step.eventType}。`);
     }
+  } else if (action === "log-quick-expand") {
+    const seq = ui.logQuickSeq;
+    if (seq > 0) {
+      const seqTop = approximateLogScrollTopForSeq(selectedRun, seq, ui.logView);
+      ui = {
+        ...ui,
+        tab: "expedition",
+        expandedLogSeq: ui.expandedLogSeq === seq ? 0 : seq,
+        logScrollTop: seqTop,
+        logVirtualRow: logVirtualRowByTop(seqTop, ui.logView)
+      };
+      closeLogQuickSheet();
+      setBanner(`已定位日志 #${seq}。`);
+    }
+  } else if (action === "log-quick-filter-type") {
+    if (value.length > 0) {
+      const eventType = value as EventType;
+      ui = {
+        ...ui,
+        tab: "expedition",
+        logTypeFilter: eventType,
+        logReasonFilter: "all",
+        expandedLogSeq: ui.logQuickSeq,
+        logScrollTop: approximateLogScrollTopForSeq(selectedRun, ui.logQuickSeq, ui.logView),
+        logVirtualRow: logVirtualRowByTop(
+          approximateLogScrollTopForSeq(selectedRun, ui.logQuickSeq, ui.logView),
+          ui.logView
+        )
+      };
+      closeLogQuickSheet();
+      setBanner(`已按类型筛选：${eventTypeLabel(eventType)}。`);
+    }
+  } else if (action === "log-quick-filter-reason") {
+    if (value.length > 0) {
+      const reason = value as ReasonTag;
+      const seqTop = approximateLogScrollTopForSeq(selectedRun, ui.logQuickSeq, ui.logView);
+      ui = {
+        ...ui,
+        tab: "expedition",
+        logReasonFilter: reason,
+        expandedLogSeq: ui.logQuickSeq,
+        logScrollTop: seqTop,
+        logVirtualRow: logVirtualRowByTop(seqTop, ui.logView)
+      };
+      closeLogQuickSheet();
+      setBanner(`已按原因筛选：${reasonText(reason)}。`);
+    }
+  } else if (action === "log-quick-jump-replay") {
+    const seq = Number(value);
+    if (Number.isFinite(seq) && replayMoments.length > 0) {
+      const nextIndex = findClosestReplayMomentIndex(replayMoments, seq);
+      const step = replayMoments[nextIndex];
+      if (step) {
+        const stepTop = approximateLogScrollTopForSeq(selectedRun, step.seq, ui.logView);
+        ui = {
+          ...ui,
+          tab: "expedition",
+          replayIndex: nextIndex,
+          expandedLogSeq: step.seq,
+          logTypeFilter: step.eventType,
+          logReasonFilter: step.reasonTags[0] ?? "all",
+          logScrollTop: stepTop,
+          logVirtualRow: logVirtualRowByTop(stepTop, ui.logView)
+        };
+        closeLogQuickSheet();
+        setBanner(`已跳转至最接近的回放步骤 #${step.seq}。`);
+      }
+    }
+  } else if (action === "close-log-quick-sheet") {
+    closeLogQuickSheet();
   } else if (action === "toggle-log-expand") {
     const seq = Number(value);
     if (Number.isFinite(seq)) {
+      if (suppressLogToggleSeq === seq) {
+        suppressLogToggleSeq = 0;
+        return;
+      }
       ui = { ...ui, expandedLogSeq: ui.expandedLogSeq === seq ? 0 : seq };
     }
   } else if (action === "export-save") {
@@ -2818,6 +4294,11 @@ function handleClick(event: MouseEvent): void {
         replayIndex: 0,
         expandedLogSeq: 0,
         logView: save.settings.defaultLogView,
+        logScrollTop: 0,
+        logVirtualRow: 0,
+        logQuickSeq: 0,
+        logQuickType: "all",
+        logQuickReason: "all",
         editorText: initialEditorText(),
         editorErrors: [],
         importText: "",
@@ -2855,12 +4336,57 @@ function handleChange(event: Event): void {
     ui = { ...ui, plannedFloor: clampPlannedFloor(Number(target.value) || 1) };
   }
 
+  if (target.id === "rule-editor-fact" && target instanceof HTMLSelectElement) {
+    const nextFact = target.value as Fact;
+    const operators = ruleEditorOperatorsForFact(nextFact);
+    const nextOp = operators.includes(ui.tacticRuleEditorOp) ? ui.tacticRuleEditorOp : operators[0];
+    ui = {
+      ...ui,
+      tacticRuleEditorFact: nextFact,
+      tacticRuleEditorOp: nextOp,
+      tacticRuleEditorError: "",
+      tacticRuleEditorValue:
+        ui.tacticRuleEditorValue.trim().length > 0 ? ui.tacticRuleEditorValue : ruleEditorDefaultValueForFact(nextFact, nextOp)
+    };
+  }
+
+  if (target.id === "rule-editor-op" && target instanceof HTMLSelectElement) {
+    const nextOp = target.value as Operator;
+    ui = {
+      ...ui,
+      tacticRuleEditorOp: nextOp,
+      tacticRuleEditorError: "",
+      tacticRuleEditorValue:
+        ui.tacticRuleEditorValue.trim().length > 0 ? ui.tacticRuleEditorValue : ruleEditorDefaultValueForFact(ui.tacticRuleEditorFact, nextOp)
+    };
+  }
+
   if (target.id === "log-type-filter" && target instanceof HTMLSelectElement) {
-    ui = { ...ui, logTypeFilter: (target.value as EventType | "all") || "all", expandedLogSeq: 0 };
+    ui = {
+      ...ui,
+      logTypeFilter: (target.value as EventType | "all") || "all",
+      expandedLogSeq: 0,
+      logAutoFollow: false,
+      logScrollTop: 0,
+      logVirtualRow: 0,
+      logQuickSeq: 0,
+      logQuickType: "all",
+      logQuickReason: "all"
+    };
   }
 
   if (target.id === "log-reason-filter" && target instanceof HTMLSelectElement) {
-    ui = { ...ui, logReasonFilter: (target.value as ReasonTag | "all") || "all", expandedLogSeq: 0 };
+    ui = {
+      ...ui,
+      logReasonFilter: (target.value as ReasonTag | "all") || "all",
+      expandedLogSeq: 0,
+      logAutoFollow: false,
+      logScrollTop: 0,
+      logVirtualRow: 0,
+      logQuickSeq: 0,
+      logQuickType: "all",
+      logQuickReason: "all"
+    };
   }
 
   render();
@@ -2869,6 +4395,14 @@ function handleChange(event: Event): void {
 function handleInput(event: Event): void {
   const target = event.target;
   if (!(target instanceof HTMLElement)) return;
+  if (target.id === "rule-editor-value" && target instanceof HTMLInputElement) {
+    ui = {
+      ...ui,
+      tacticRuleEditorValue: target.value,
+      tacticRuleEditorError: ""
+    };
+    return;
+  }
   if (!(target instanceof HTMLTextAreaElement)) return;
   if (target.id === "rules-editor") {
     ui = {
@@ -2886,9 +4420,253 @@ function handleInput(event: Event): void {
   }
 }
 
+function nudgeReplayBySwipe(delta: -1 | 1): void {
+  const selectedRun = getSelectedRun();
+  const replayMoments = buildReplayMoments(selectedRun);
+  if (replayMoments.length <= 1) return;
+
+  const currentIndex = clampReplayIndex(ui.replayIndex, replayMoments.length);
+  const nextIndex = clampReplayIndex(currentIndex + delta, replayMoments.length);
+  if (nextIndex === currentIndex) return;
+
+  const step = replayMoments[nextIndex];
+  ui = {
+    ...ui,
+    replayIndex: nextIndex,
+    expandedLogSeq: step?.seq ?? ui.expandedLogSeq,
+    logQuickSeq: 0,
+    logQuickType: "all",
+    logQuickReason: "all"
+  };
+  if (step) {
+    const stepTop = approximateLogScrollTopForSeq(selectedRun, step.seq, ui.logView);
+    ui.logScrollTop = stepTop;
+    ui.logVirtualRow = logVirtualRowByTop(stepTop, ui.logView);
+    setBanner(`滑动回放：#${step.seq}。`);
+  }
+  render();
+}
+
+function finishLogEntrySwipe(): void {
+  if (!logSwipeState) return;
+  const swipe = logSwipeState;
+  logSwipeState = null;
+
+  const deltaX = swipe.currentX - swipe.startX;
+  const deltaY = swipe.currentY - swipe.startY;
+  if (Math.abs(deltaX) < LOG_ENTRY_SWIPE_THRESHOLD_PX) return;
+  if (Math.abs(deltaX) <= Math.abs(deltaY) * LOG_ENTRY_SWIPE_DIRECTION_RATIO) return;
+
+  suppressLogToggleSeq = swipe.seq;
+  const selectedRun = getSelectedRun();
+  const targetTop = approximateLogScrollTopForSeq(selectedRun, swipe.seq, ui.logView);
+
+  if (deltaX < 0) {
+    ui = {
+      ...ui,
+      tab: "expedition",
+      logTypeFilter: swipe.eventType,
+      logReasonFilter: "all",
+      expandedLogSeq: swipe.seq,
+      logScrollTop: targetTop,
+      logVirtualRow: logVirtualRowByTop(targetTop, ui.logView),
+      logQuickSeq: 0,
+      logQuickType: "all",
+      logQuickReason: "all"
+    };
+    setBanner(`左滑筛选：${eventTypeLabel(swipe.eventType)}。`);
+    render();
+    return;
+  }
+
+  const replayMoments = buildReplayMoments(selectedRun);
+  if (replayMoments.length <= 0) return;
+  const nextIndex = findClosestReplayMomentIndex(replayMoments, swipe.seq);
+  const step = replayMoments[nextIndex];
+  if (!step) return;
+
+  const stepTop = approximateLogScrollTopForSeq(selectedRun, step.seq, ui.logView);
+  ui = {
+    ...ui,
+    tab: "expedition",
+    replayIndex: nextIndex,
+    expandedLogSeq: step.seq,
+    logTypeFilter: step.eventType,
+    logReasonFilter: step.reasonTags[0] ?? "all",
+    logScrollTop: stepTop,
+    logVirtualRow: logVirtualRowByTop(stepTop, ui.logView),
+    logQuickSeq: 0,
+    logQuickType: "all",
+    logQuickReason: "all"
+  };
+  setBanner(`右滑回放定位：#${step.seq}。`);
+  render();
+}
+
+function handleTouchStart(event: TouchEvent): void {
+  if (event.touches.length !== 1) return;
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) return;
+  const touch = event.touches[0];
+  const replayZone = target.closest("[data-gesture='replay']");
+  if (replayZone instanceof HTMLElement) {
+    replaySwipeState = {
+      startX: touch.clientX,
+      startY: touch.clientY,
+      currentX: touch.clientX,
+      currentY: touch.clientY
+    };
+  } else {
+    replaySwipeState = null;
+  }
+
+  const logEntry = target.closest("[data-log-seq]");
+  if (logEntry instanceof HTMLElement) {
+    const parsed = parseLogEntryDataset(logEntry);
+    if (!parsed) {
+      logLongPressState = null;
+      logSwipeState = null;
+      return;
+    }
+    logSwipeState = {
+      ...parsed,
+      startX: touch.clientX,
+      startY: touch.clientY,
+      currentX: touch.clientX,
+      currentY: touch.clientY
+    };
+    clearLogLongPressTimer();
+    logLongPressState = {
+      ...parsed,
+      startX: touch.clientX,
+      startY: touch.clientY,
+      timerId: null,
+      fired: false
+    };
+    logLongPressState.timerId = window.setTimeout(() => {
+      if (!logLongPressState || logLongPressState.fired) return;
+      logLongPressState.fired = true;
+      suppressLogToggleSeq = logLongPressState.seq;
+      clearLogLongPressTimer();
+      logSwipeState = null;
+      openLogQuickSheet(logLongPressState.seq, logLongPressState.eventType, logLongPressState.reasonTag);
+    }, LOG_LONG_PRESS_DELAY_MS);
+    return;
+  }
+
+  clearLogLongPressTimer();
+  logLongPressState = null;
+  logSwipeState = null;
+}
+
+function handleTouchMove(event: TouchEvent): void {
+  if (event.touches.length !== 1) return;
+  const touch = event.touches[0];
+  if (replaySwipeState) {
+    replaySwipeState.currentX = touch.clientX;
+    replaySwipeState.currentY = touch.clientY;
+  }
+
+  if (logSwipeState) {
+    logSwipeState.currentX = touch.clientX;
+    logSwipeState.currentY = touch.clientY;
+  }
+
+  if (!logLongPressState) return;
+  const deltaX = touch.clientX - logLongPressState.startX;
+  const deltaY = touch.clientY - logLongPressState.startY;
+  if (Math.hypot(deltaX, deltaY) > LOG_LONG_PRESS_CANCEL_DISTANCE_PX) {
+    clearLogLongPressTimer();
+    logLongPressState = null;
+  }
+}
+
+function finishReplaySwipe(): void {
+  if (!replaySwipeState) return;
+  const deltaX = replaySwipeState.currentX - replaySwipeState.startX;
+  const deltaY = replaySwipeState.currentY - replaySwipeState.startY;
+  replaySwipeState = null;
+
+  if (Math.abs(deltaX) < REPLAY_SWIPE_THRESHOLD_PX) return;
+  if (Math.abs(deltaX) <= Math.abs(deltaY) * REPLAY_SWIPE_DIRECTION_RATIO) return;
+  nudgeReplayBySwipe(deltaX > 0 ? -1 : 1);
+}
+
+function handleTouchEnd(): void {
+  finishReplaySwipe();
+  finishLogEntrySwipe();
+  if (logLongPressState) {
+    clearLogLongPressTimer();
+    logLongPressState = null;
+  }
+}
+
+function handleTouchCancel(): void {
+  replaySwipeState = null;
+  logSwipeState = null;
+  clearLogLongPressTimer();
+  logLongPressState = null;
+}
+
+function handleContextMenu(event: MouseEvent): void {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) return;
+  const logEntry = target.closest("[data-log-seq]");
+  if (!(logEntry instanceof HTMLElement)) return;
+  const parsed = parseLogEntryDataset(logEntry);
+  if (!parsed) return;
+  event.preventDefault();
+  suppressLogToggleSeq = parsed.seq;
+  openLogQuickSheet(parsed.seq, parsed.eventType, parsed.reasonTag);
+}
+
+function handleScroll(event: Event): void {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) return;
+  if (target.id !== "log-list") return;
+
+  const nextTop = Math.max(0, target.scrollTop);
+  const nextViewportHeight = Math.max(120, target.clientHeight);
+  const nextRow = logVirtualRowByTop(nextTop, ui.logView);
+  const now = Date.now();
+  const isProgrammatic = now < programmaticLogScrollUntil;
+  const nearBottom = isLogNearBottom(nextTop, nextViewportHeight, target.scrollHeight);
+  const canAutoFollow = ui.logTypeFilter === "all" && ui.logReasonFilter === "all" && save.activeRunPlan != null;
+  const nextAutoFollow = canAutoFollow ? nearBottom : false;
+  const viewportChanged = Math.abs(nextViewportHeight - ui.logViewportHeight) >= 2;
+  const rowChanged = nextRow !== ui.logVirtualRow;
+
+  if (!rowChanged && !viewportChanged && ui.logAutoFollow === nextAutoFollow) {
+    ui.logScrollTop = nextTop;
+    return;
+  }
+
+  if (isProgrammatic) {
+    ui.logScrollTop = nextTop;
+    ui.logViewportHeight = nextViewportHeight;
+    ui.logVirtualRow = nextRow;
+    return;
+  }
+
+  ui = {
+    ...ui,
+    logScrollTop: nextTop,
+    logViewportHeight: nextViewportHeight,
+    logVirtualRow: nextRow,
+    logAutoFollow: nextAutoFollow
+  };
+  render();
+}
+
 app.addEventListener("click", handleClick);
 app.addEventListener("change", handleChange);
 app.addEventListener("input", handleInput);
+app.addEventListener("contextmenu", handleContextMenu);
+app.addEventListener("scroll", handleScroll, true);
+app.addEventListener("touchstart", handleTouchStart, { passive: true });
+app.addEventListener("touchmove", handleTouchMove, { passive: true });
+app.addEventListener("touchend", handleTouchEnd, { passive: true });
+app.addEventListener("touchcancel", handleTouchCancel, { passive: true });
 
 finalizeActiveRunIfDue();
 window.setInterval(() => {

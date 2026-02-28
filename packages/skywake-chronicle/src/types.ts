@@ -1,6 +1,7 @@
 export type TabId = "expedition" | "party" | "town" | "storage" | "settings";
 export type LogView = "narrative" | "debug";
 export type ExpeditionTimeScale = 1 | 4 | 10;
+export type ActiveRunSpeedMultiplier = 1 | 2 | 4 | 8;
 
 export type Role = "tank" | "dps" | "support";
 export type CharacterClass = "vanguard" | "ranger" | "mystic";
@@ -218,6 +219,8 @@ export interface ActiveRunPlan {
   run: RunSummary;
   startedAt: number;
   finishAt: number;
+  runtimeSpeedMultiplier: ActiveRunSpeedMultiplier;
+  unlockedEventCount: number;
   pausedAt: number | null;
   pausedAccumMs: number;
   postRunDelta: PostRunDelta;
@@ -307,6 +310,21 @@ export interface UiState {
   logView: LogView;
   logTypeFilter: EventType | "all";
   logReasonFilter: ReasonTag | "all";
+  logScrollTop: number;
+  logViewportHeight: number;
+  logVirtualRow: number;
+  logAutoFollow: boolean;
+  logSmoothScroll: boolean;
+  logQuickSeq: number;
+  logQuickType: EventType | "all";
+  logQuickReason: ReasonTag | "all";
+  collapsedExpeditionPanels: string[];
+  tacticRuleEditorRuleId: string;
+  tacticRuleEditorLeafIndex: number;
+  tacticRuleEditorFact: Fact;
+  tacticRuleEditorOp: Operator;
+  tacticRuleEditorValue: string;
+  tacticRuleEditorError: string;
   editorText: string;
   editorErrors: string[];
   importText: string;
