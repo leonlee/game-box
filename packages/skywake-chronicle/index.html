@@ -509,6 +509,107 @@
       gap: 8px;
     }
 
+    .log-detail-shortcuts {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .log-detail-shortcuts button {
+      border-radius: 999px;
+      min-height: 34px;
+      padding: 5px 10px;
+      font-size: 0.76rem;
+      background: rgba(22, 33, 47, 0.9);
+    }
+
+    .log-detail-shortcuts button.on {
+      border-color: rgba(227, 184, 108, 0.88);
+      color: #f7dbab;
+      background: rgba(61, 43, 21, 0.85);
+    }
+
+    .log-timeline-box {
+      border: 1px solid rgba(99, 128, 160, 0.45);
+      border-radius: 12px;
+      background: rgba(14, 21, 32, 0.78);
+      padding: 9px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .log-key-timeline {
+      display: flex;
+      gap: 7px;
+      overflow-x: auto;
+      overflow-y: hidden;
+      padding-bottom: 4px;
+      scroll-snap-type: x proximity;
+      scrollbar-width: thin;
+    }
+
+    .timeline-marker {
+      border: 1px solid rgba(96, 126, 160, 0.56);
+      border-radius: 11px;
+      background: rgba(16, 24, 37, 0.9);
+      min-width: 116px;
+      max-width: 168px;
+      padding: 7px 8px;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 2px;
+      scroll-snap-align: center;
+      transition: border-color 0.12s ease, transform 0.1s ease;
+    }
+
+    .timeline-marker:active {
+      transform: scale(0.985);
+    }
+
+    .timeline-marker.success {
+      border-color: rgba(121, 192, 140, 0.54);
+    }
+
+    .timeline-marker.partial {
+      border-color: rgba(240, 166, 106, 0.6);
+    }
+
+    .timeline-marker.failed {
+      border-color: rgba(229, 127, 127, 0.68);
+    }
+
+    .timeline-marker.active {
+      border-color: rgba(227, 184, 108, 0.9);
+      box-shadow: inset 0 0 0 1px rgba(227, 184, 108, 0.4);
+      background: rgba(46, 34, 21, 0.88);
+    }
+
+    .timeline-marker .seq {
+      font-size: 0.82rem;
+      color: #f0d8ab;
+      line-height: 1.2;
+      font-weight: 600;
+    }
+
+    .timeline-marker .type {
+      font-size: 0.74rem;
+      color: #d5e2f5;
+      line-height: 1.3;
+      width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .timeline-marker .time {
+      font-size: 0.68rem;
+      color: #9eb5d1;
+      line-height: 1.25;
+    }
+
     .touch-list.logs .event-head {
       display: grid;
       grid-template-columns: auto 1fr auto auto;
@@ -845,6 +946,11 @@
       .log-detail-panel {
         max-height: none;
         min-height: 0;
+      }
+
+      .timeline-marker {
+        min-width: 110px;
+        max-width: 156px;
       }
 
       .touch-list.logs .event-head {

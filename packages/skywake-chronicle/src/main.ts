@@ -103,6 +103,7 @@ const LOG_ENTRY_SWIPE_THRESHOLD_PX = 52;
 const LOG_ENTRY_SWIPE_DIRECTION_RATIO = 1.15;
 const LOG_AUTO_FOLLOW_BOTTOM_GAP = 84;
 const PROGRAMMATIC_LOG_SCROLL_MS = 280;
+const LOG_TIMELINE_MARKER_MAX = 42;
 const RULE_EDITOR_FACT_OPTIONS: readonly Fact[] = [
   "self_stress_pct",
   "self_has_consequence",
@@ -202,6 +203,14 @@ interface ReplayMoment {
   reasonTags: ReasonTag[];
   summary: string;
   ruleId: string | null;
+}
+
+interface LogTimelineMarker {
+  seq: number;
+  floor: number;
+  eventType: EventType;
+  outcome: RunEvent["outcome"];
+  timeOffsetSec: number;
 }
 
 interface ActiveRunSnapshot {
@@ -1124,6 +1133,59 @@ function filterRunEvents(
   });
 }
 
+function buildLogTimelineMarkers(events: RunEvent[]): LogTimelineMarker[] {
+  if (events.length === 0) return [];
+
+  const markers = events.filter((event) => {
+    if (event.outcome !== "success") return true;
+    if (event.event_type === "run_start" || event.event_type === "run_end") return true;
+    if (event.event_type === "combat_start" || event.event_type === "combat_end") return true;
+    if (event.event_type === "overcome_check") return true;
+    if (event.event_type === "retreat_triggered" || event.event_type === "gate_blocked") return true;
+    if (event.event_type === "quest_progress") return true;
+    return false;
+  });
+  if (markers.length === 0) return [];
+
+  const sampled =
+    markers.length <= LOG_TIMELINE_MARKER_MAX
+      ? markers
+      : (() => {
+          const stride = Math.ceil(markers.length / LOG_TIMELINE_MARKER_MAX);
+          const coarse = markers.filter((_, index) => index % stride === 0);
+          const tail = markers[markers.length - 1];
+          if (coarse.length === 0 || coarse[coarse.length - 1].seq !== tail.seq) {
+            coarse.push(tail);
+          }
+          if (coarse.length <= LOG_TIMELINE_MARKER_MAX) return coarse;
+          return [...coarse.slice(0, LOG_TIMELINE_MARKER_MAX - 1), tail];
+        })();
+
+  return sampled.map((event) => ({
+    seq: event.seq,
+    floor: event.floor,
+    eventType: event.event_type,
+    outcome: event.outcome,
+    timeOffsetSec: event.time_offset_sec
+  }));
+}
+
+function findNextSeqByEventType(events: RunEvent[], eventType: EventType, currentSeq: number): number | null {
+  if (events.length === 0) return null;
+  const currentIndex = currentSeq > 0 ? events.findIndex((event) => event.seq === currentSeq) : -1;
+  if (currentIndex < 0) {
+    const first = events.find((event) => event.event_type === eventType);
+    return first?.seq ?? null;
+  }
+  for (let index = currentIndex + 1; index < events.length; index += 1) {
+    if (events[index].event_type === eventType) return events[index].seq;
+  }
+  for (let index = 0; index <= currentIndex; index += 1) {
+    if (events[index].event_type === eventType) return events[index].seq;
+  }
+  return null;
+}
+
 function summaryLine(event: RunEvent): string {
   if (event.event_type === "combat_action") {
     return `${String(event.payload.actor_name ?? "队员")} · ${combatActionLabel(event.payload.action)} · ${outcomeLabel(event.outcome)}`;
@@ -1936,6 +1998,65 @@ function renderExpeditionTab(): string {
   const detailIndex = detailEvent ? filteredEvents.findIndex((event) => event.seq === detailEvent.seq) : -1;
   const detailPrev = detailIndex > 0 ? filteredEvents[detailIndex - 1] : null;
   const detailNext = detailIndex >= 0 && detailIndex < filteredEvents.length - 1 ? filteredEvents[detailIndex + 1] : null;
+  const detailSeq = detailEvent?.seq ?? 0;
+  const detailTypeShortcuts = (
+    [
+      "overcome_check",
+      "combat_start",
+      "combat_end",
+      "retreat_triggered",
+      "gate_blocked",
+      "quest_progress",
+      "run_end"
+    ] as EventType[]
+  )
+    .map((eventType) => {
+      const count = filteredEvents.filter((event) => event.event_type === eventType).length;
+      if (count <= 0) return null;
+      const targetSeq = findNextSeqByEventType(filteredEvents, eventType, detailSeq);
+      return {
+        eventType,
+        count,
+        targetSeq
+      };
+    })
+    .filter((item): item is { eventType: EventType; count: number; targetSeq: number | null } => item !== null)
+    .slice(0, 5);
+  const timelineMarkers = buildLogTimelineMarkers(filteredEvents);
+  const timelineStrip =
+    timelineMarkers.length > 0
+      ? `<div class="log-timeline-box">
+          <div class="row">
+            <strong>关键时间线</strong>
+            <span class="hint">点按事件可快速定位</span>
+          </div>
+          <div id="log-key-timeline" class="log-key-timeline">
+            ${timelineMarkers
+              .map((marker) => {
+                const active = marker.seq === detailSeq;
+                return `<button class="timeline-marker ${marker.outcome} ${active ? "active" : ""}" data-action="log-focus-event" data-value="${marker.seq}" title="#${marker.seq} · ${eventTypeLabel(marker.eventType)} · F${marker.floor}">
+                  <span class="seq">#${marker.seq}</span>
+                  <span class="type">${escapeHtml(eventTypeLabel(marker.eventType))}</span>
+                  <span class="time">T+${formatEventOffset(marker.timeOffsetSec)}</span>
+                </button>`;
+              })
+              .join("")}
+          </div>
+        </div>`
+      : `<div class="log-timeline-box"><p class="hint">当前筛选条件下暂无关键时间线。</p></div>`;
+  const detailShortcutStrip =
+    detailTypeShortcuts.length > 0
+      ? `<div class="log-detail-shortcuts">
+          ${detailTypeShortcuts
+            .map((item) => {
+              const activeType = detailEvent?.event_type === item.eventType;
+              return `<button data-action="log-focus-type" data-value="${item.eventType}" ${item.targetSeq == null ? "disabled" : ""} class="${activeType ? "on" : ""}">
+                ${escapeHtml(eventTypeLabel(item.eventType))} · ${item.count}
+              </button>`;
+            })
+            .join("")}
+        </div>`
+      : "";
   const detailPanelBody = detailEvent
     ? `<div class="log-detail-hero">
           <div class="row">
@@ -1944,6 +2065,7 @@ function renderExpeditionTab(): string {
           </div>
           <p class="hint">时间 T+${formatEventOffset(detailEvent.time_offset_sec)} · 节点 ${escapeHtml(detailEvent.node_id)}</p>
         </div>
+        ${detailShortcutStrip}
         <div class="log-detail-content">${renderEventDetailContent(detailEvent, ui.logView)}</div>`
     : `<p class="hint">当前筛选下没有日志事件，调整筛选后可查看详情。</p>`;
   const detailPanel = `
@@ -2384,6 +2506,8 @@ function renderExpeditionTab(): string {
             : ""
         }
       </div>
+
+      ${timelineStrip}
 
       <div class="log-review-layout">
         <div class="log-column">
@@ -2910,6 +3034,21 @@ function render(): void {
     }
     if (ui.logViewportHeight !== logList.clientHeight) {
       ui.logViewportHeight = Math.max(120, logList.clientHeight);
+    }
+  }
+
+  const logTimeline = app.querySelector<HTMLElement>("#log-key-timeline");
+  const activeMarker = logTimeline?.querySelector<HTMLElement>(".timeline-marker.active");
+  if (logTimeline && activeMarker && typeof activeMarker.scrollIntoView === "function") {
+    const containerRect = logTimeline.getBoundingClientRect();
+    const markerRect = activeMarker.getBoundingClientRect();
+    const outsideViewport = markerRect.left < containerRect.left + 12 || markerRect.right > containerRect.right - 12;
+    if (outsideViewport) {
+      activeMarker.scrollIntoView({
+        behavior: ui.logSmoothScroll ? "smooth" : "auto",
+        block: "nearest",
+        inline: "center"
+      });
     }
   }
 }
@@ -4324,6 +4463,27 @@ function handleClick(event: MouseEvent): void {
         logQuickType: "all",
         logQuickReason: "all"
       };
+    }
+  } else if (action === "log-focus-type") {
+    if (selectedRun && value.length > 0) {
+      const targetType = value as EventType;
+      const visibleEvents = filterRunEvents(selectedRun, ui.logTypeFilter, ui.logReasonFilter);
+      const targetSeq = findNextSeqByEventType(visibleEvents, targetType, ui.expandedLogSeq);
+      if (targetSeq != null) {
+        const targetTop = approximateLogScrollTopForSeq(selectedRun, targetSeq, ui.logView);
+        ui = {
+          ...ui,
+          tab: "expedition",
+          expandedLogSeq: targetSeq,
+          logAutoFollow: false,
+          logScrollTop: targetTop,
+          logVirtualRow: logVirtualRowByTop(targetTop, ui.logView),
+          logQuickSeq: 0,
+          logQuickType: "all",
+          logQuickReason: "all"
+        };
+        setBanner(`已定位到 ${eventTypeLabel(targetType)}：#${targetSeq}。`);
+      }
     }
   } else if (action === "toggle-log-expand") {
     const seq = Number(value);
